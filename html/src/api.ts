@@ -310,6 +310,59 @@ export {
     isFavoriteGroupLoading_ as isFavoriteGroupLoading
 };
 
+//
+// Languages
+//
+
+export var subsetOfLanguages = {
+    eng: 'English',
+    kor: '한국어',
+    rus: 'Русский',
+    spa: 'Español',
+    por: 'Português',
+    zho: '中文',
+    deu: 'Deutsch',
+    jpn: '日本語',
+    fra: 'Français',
+    swe: 'Svenska',
+    nld: 'Nederlands',
+    pol: 'Polski',
+    dan: 'Dansk',
+    nor: 'Norsk',
+    ita: 'Italiano',
+    tha: 'ภาษาไทย',
+    fin: 'Suomi',
+    hun: 'Magyar',
+    ces: 'Čeština',
+    tur: 'Türkçe',
+    ara: 'العربية'
+};
+
+// vrchat to famfamfam
+export var languageMappings = {
+    eng: 'us',
+    kor: 'kr',
+    rus: 'ru',
+    spa: 'es',
+    por: 'pt',
+    zho: 'cn',
+    deu: 'de',
+    jpn: 'jp',
+    fra: 'fr',
+    swe: 'se',
+    nld: 'nl',
+    pol: 'pl',
+    dan: 'dk',
+    nor: 'no',
+    ita: 'it',
+    tha: 'th',
+    fin: 'fi',
+    hun: 'hu',
+    ces: 'cz',
+    tur: 'tr',
+    ara: 'ae'
+};
+
 function applyObject(target: any, source: any): any[] {
     var changes = [];
 

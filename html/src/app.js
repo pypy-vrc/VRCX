@@ -129,59 +129,6 @@ speechSynthesis.getVoices();
     Vue.use(DataTables);
 
     //
-    // Languages
-    //
-
-    var subsetOfLanguages = {
-        eng: 'English',
-        kor: '한국어',
-        rus: 'Русский',
-        spa: 'Español',
-        por: 'Português',
-        zho: '中文',
-        deu: 'Deutsch',
-        jpn: '日本語',
-        fra: 'Français',
-        swe: 'Svenska',
-        nld: 'Nederlands',
-        pol: 'Polski',
-        dan: 'Dansk',
-        nor: 'Norsk',
-        ita: 'Italiano',
-        tha: 'ภาษาไทย',
-        fin: 'Suomi',
-        hun: 'Magyar',
-        ces: 'Čeština',
-        tur: 'Türkçe',
-        ara: 'العربية'
-    };
-
-    // vrchat to famfamfam
-    var languageMappings = {
-        eng: 'us',
-        kor: 'kr',
-        rus: 'ru',
-        spa: 'es',
-        por: 'pt',
-        zho: 'cn',
-        deu: 'de',
-        jpn: 'jp',
-        fra: 'fr',
-        swe: 'se',
-        nld: 'nl',
-        pol: 'pl',
-        dan: 'dk',
-        nor: 'no',
-        ita: 'it',
-        tha: 'th',
-        fin: 'fi',
-        hun: 'hu',
-        ces: 'cz',
-        tur: 'tr',
-        ara: 'ae'
-    };
-
-    //
     // API
     //
 
@@ -531,7 +478,7 @@ speechSynthesis.getVoices();
                 continue;
             }
             var key = tag.substr(9);
-            var value = subsetOfLanguages[key];
+            var value = api.subsetOfLanguages[key];
             if (typeof value === 'undefined') {
                 continue;
             }
@@ -3156,7 +3103,7 @@ speechSynthesis.getVoices();
 
     $app.methods.languageClass = function(language) {
         var style = {};
-        var mapping = languageMappings[language];
+        var mapping = api.languageMappings[language];
         if (typeof mapping !== 'undefined') {
             style[mapping] = true;
         }
@@ -3173,7 +3120,7 @@ speechSynthesis.getVoices();
                     }
                 }
             );
-            var json = response.json();
+            var json = await response.json();
             if (json === Object(json) && json.name && json.published_at) {
                 this.latestAppVersion = `${json.name} (${formatDate(
                     json.published_at,
@@ -9551,8 +9498,8 @@ speechSynthesis.getVoices();
         languageValue: '',
         languages: (function() {
             var data = [];
-            for (var key in subsetOfLanguages) {
-                var value = subsetOfLanguages[key];
+            for (var key in api.subsetOfLanguages) {
+                var value = api.subsetOfLanguages[key];
                 data.push({
                     key,
                     value
