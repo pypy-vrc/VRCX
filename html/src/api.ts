@@ -1,7 +1,6 @@
 import Noty from 'noty';
 import {isEquals, escapeHtml} from './util';
 import * as pubsub from './pubsub';
-import {brotliDecompressSync} from 'zlib';
 
 export const enum ApiStatusCode {
     OK = 200,
