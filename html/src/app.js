@@ -26,8 +26,8 @@ import * as api from './api';
 import {parseLocation} from './location';
 
 import {appVersion} from './constants.js';
-import sharedRepository from './repository/shared.js';
-import configRepository from './repository/config.js';
+import sharedRepository from './repository/shared';
+import configRepository from './repository/config';
 import gameLogService from './service/gamelog.js';
 
 // use require()

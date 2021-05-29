@@ -10,8 +10,8 @@ import ElementUI from 'element-ui';
 import locale from 'element-ui/lib/locale/lang/en';
 
 import {appVersion} from './constants.js';
-import sharedRepository from './repository/shared.js';
-import configRepository from './repository/config.js';
+import sharedRepository from './repository/shared';
+import configRepository from './repository/config';
 
 speechSynthesis.getVoices();
 
