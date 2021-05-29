@@ -136,33 +136,6 @@ speechSynthesis.getVoices();
 
     // API: Config
 
-    pubsub.subscribe('CONFIG', function(args) {
-        args.ref = API.applyConfig(args.json);
-    });
-
-    API.applyConfig = function(json) {
-        var ref = {
-            clientApiKey: '',
-            ...json
-        };
-        api.applyConfig(ref);
-        return ref;
-    };
-
-    API.getConfig = function() {
-        return api
-            .legacyApi('config', {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('CONFIG', args);
-                return args;
-            });
-    };
-
     // API: Location
 
     API.parseLocation = function(tag) {
@@ -552,24 +525,7 @@ speechSynthesis.getVoices();
         return ref;
     };
 
-    API.getCurrentUser = function() {
-        return api
-            .legacyApi(`auth/user?apiKey=${api.config.clientApiKey}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    origin: true
-                };
-                if (json.requiresTwoFactorAuth) {
-                    pubsub.publish('USER:2FA', args);
-                } else {
-                    pubsub.publish('USER:CURRENT', args);
-                }
-                return args;
-            });
-    };
+
 
     var userUpdateQueue = [];
     var userUpdateTimer = null;
@@ -3070,20 +3026,16 @@ speechSynthesis.getVoices();
             );
             this.updateLoop();
             this.updateGameLogLoop();
-            this.$nextTick(function() {
+            this.$nextTick(async function() {
                 this.$el.style.display = '';
                 this.loginForm.loading = true;
-                API.getConfig()
-                    .catch((err) => {
-                        this.loginForm.loading = false;
-                        throw err;
-                    })
-                    .then((args) => {
-                        API.getCurrentUser().finally(() => {
-                            this.loginForm.loading = false;
-                        });
-                        return args;
-                    });
+                try {
+                    await api.getConfig();
+                    await api.getCurrentUser();
+                } catch (err) {
+                    console.error(err);
+                }
+                this.loginForm.loading = false;
             });
         }
     };
@@ -3154,7 +3106,7 @@ speechSynthesis.getVoices();
             if (api.isLoggedIn.value === true) {
                 if (--this.nextCurrentUserRefresh <= 0) {
                     this.nextCurrentUserRefresh = 60; // 30secs
-                    API.getCurrentUser().catch((err1) => {
+                    api.getCurrentUser().catch((err1) => {
                         throw err1;
                     });
                 }
@@ -4508,7 +4460,7 @@ speechSynthesis.getVoices();
                                 throw err;
                             })
                             .then((args) => {
-                                API.getCurrentUser();
+                                api.getCurrentUser();
                                 return args;
                             });
                     } else if (action === 'cancel') {
@@ -4540,7 +4492,7 @@ speechSynthesis.getVoices();
                                 throw err;
                             })
                             .then((args) => {
-                                API.getCurrentUser();
+                                api.getCurrentUser();
                                 return args;
                             });
                     } else if (action === 'cancel') {
@@ -4687,7 +4639,8 @@ speechSynthesis.getVoices();
 
     $app.methods.relogin = function(loginParmas) {
         this.loginForm.loading = true;
-        return API.getConfig()
+        return api
+            .getConfig()
             .catch((err) => {
                 this.loginForm.loading = false;
                 throw err;
@@ -4767,7 +4720,7 @@ speechSynthesis.getVoices();
         this.$refs.loginForm.validate((valid) => {
             if (valid && !this.loginForm.loading) {
                 this.loginForm.loading = true;
-                API.getConfig()
+                api.getConfig()
                     .catch((err) => {
                         this.loginForm.loading = false;
                         throw err;
@@ -4798,7 +4751,7 @@ speechSynthesis.getVoices();
                 })
                 .then((steamTicket) => {
                     if (steamTicket) {
-                        API.getConfig()
+                        api.getConfig()
                             .catch((err) => {
                                 this.loginForm.loading = false;
                                 throw err;

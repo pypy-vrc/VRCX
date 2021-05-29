@@ -403,8 +403,39 @@ export function applyConfig(apiConfig: ApiConfig): void {
     replaceObject(config_, apiConfig);
 }
 
+export async function getConfig(): Promise<ApiResponse<ApiConfig>> {
+    var response = await api<ApiConfig>({
+        method: ApiHttpMethod.GET,
+        path: 'config'
+    });
+
+    var {status, data} = response;
+    if (status === ApiStatusCode.OK && data !== void 0) {
+        applyConfig(data);
+    }
+
+    return response;
+}
+
 export function applyCurrentUser(apiCurrentUser: ApiCurrentUser): void {
     applyObject(currentUser_, apiCurrentUser);
+}
+
+export function getCurrentUser(): Promise<any> {
+    return legacyApi(`auth/user?apiKey=${config_.clientApiKey}`, {
+        method: 'GET'
+    }).then((json) => {
+        var args = {
+            json,
+            origin: true
+        };
+        if (json.requiresTwoFactorAuth) {
+            pubsub.publish('USER:2FA', args);
+        } else {
+            pubsub.publish('USER:CURRENT', args);
+        }
+        return args;
+    });
 }
 
 /*
