@@ -135,29 +135,6 @@ speechSynthesis.getVoices();
 
     var API = {};
 
-    // API: User
-
-    // changeUserName: PUT users/${userId} {displayName: string, currentPassword: string}
-    // changeUserEmail: PUT users/${userId} {email: string, currentPassword: string}
-    // changePassword: PUT users/${userId} {password: string, currentPassword: string}
-    // updateTOSAggreement: PUT users/${userId} {acceptedTOSVersion: number}
-
-    // 2FA
-    // removeTwoFactorAuth: DELETE auth/twofactorauth
-    // getTwoFactorAuthpendingSecret: POST auth/twofactorauth/totp/pending -> { qrCodeDataUrl: string, secret: string }
-    // verifyTwoFactorAuthPendingSecret: POST auth/twofactorauth/totp/pending/verify { code: string } -> { verified: bool, enabled: bool }
-    // cancelVerifyTwoFactorAuthPendingSecret: DELETE auth/twofactorauth/totp/pending
-    // getTwoFactorAuthOneTimePasswords: GET auth/user/twofactorauth/otp -> { otp: [ { code: string, used: bool } ] }
-
-    // Account Link
-    // merge: PUT auth/user/merge {mergeToken: string}
-    // 링크됐다면 CurrentUser에 steamId, oculusId 값이 생기는듯
-    // 스팀 계정으로 로그인해도 steamId, steamDetails에 값이 생김
-
-    // Password Recovery
-    // sendLink: PUT auth/password {email: string}
-    // setNewPassword: PUT auth/password {emailToken: string, id: string, password: string}
-
     pubsub.subscribe('LOGOUT', function() {
         AppApi.DeleteAllCookies();
         api.isLoggedIn.value = false;
@@ -208,16 +185,6 @@ speechSynthesis.getVoices();
             });
         }
     });
-
-    API.logout = function() {
-        return api
-            .legacyApi('logout', {
-                method: 'PUT'
-            })
-            .finally(() => {
-                pubsub.publish('LOGOUT');
-            });
-    };
 
     /*
         params: {
@@ -4576,7 +4543,7 @@ speechSynthesis.getVoices();
                     password: loginParmas.password
                 })
                     .catch((err2) => {
-                        API.logout();
+                        api.logout();
                         throw err2;
                     })
                     .finally(() => {
@@ -5853,10 +5820,7 @@ speechSynthesis.getVoices();
             LL.worldName += '\uFFA0'.repeat(2 - LL.worldName.length);
         }
         if (this.discordInstance) {
-            Discord.SetText(
-                LL.worldName,
-                `#${LL.name} ${LL.accessType}`
-            );
+            Discord.SetText(LL.worldName, `#${LL.name} ${LL.accessType}`);
         } else {
             Discord.SetText(LL.worldName, '');
         }
@@ -7427,7 +7391,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.logout();
+                    api.logout();
                 }
             }
         });
@@ -8031,7 +7995,10 @@ speechSynthesis.getVoices();
                     }
                     this.getAvatarName(args);
                     var L = parseLocation(D.ref.location);
-                    if (L.worldId && this.lastLocation.location !== L.location) {
+                    if (
+                        L.worldId &&
+                        this.lastLocation.location !== L.location
+                    ) {
                         API.getInstance({
                             worldId: L.worldId,
                             instanceId: L.instanceId
@@ -8095,7 +8062,10 @@ speechSynthesis.getVoices();
         } else {
             if (L.isOffline === false) {
                 for (var {ref} of this.friends.values()) {
-                    if (typeof ref !== 'undefined' && ref.location === L.location) {
+                    if (
+                        typeof ref !== 'undefined' &&
+                        ref.location === L.location
+                    ) {
                         if (
                             ref.state === 'active' &&
                             ref.location === 'private'

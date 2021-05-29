@@ -3,6 +3,27 @@ import {isEquals, escapeHtml} from './util';
 import * as pubsub from './pubsub';
 import {Ref} from './ref';
 
+// changeUserName: PUT users/${userId} {displayName: string, currentPassword: string}
+// changeUserEmail: PUT users/${userId} {email: string, currentPassword: string}
+// changePassword: PUT users/${userId} {password: string, currentPassword: string}
+// updateTOSAggreement: PUT users/${userId} {acceptedTOSVersion: number}
+
+// 2FA
+// removeTwoFactorAuth: DELETE auth/twofactorauth
+// getTwoFactorAuthpendingSecret: POST auth/twofactorauth/totp/pending -> { qrCodeDataUrl: string, secret: string }
+// verifyTwoFactorAuthPendingSecret: POST auth/twofactorauth/totp/pending/verify { code: string } -> { verified: bool, enabled: bool }
+// cancelVerifyTwoFactorAuthPendingSecret: DELETE auth/twofactorauth/totp/pending
+// getTwoFactorAuthOneTimePasswords: GET auth/user/twofactorauth/otp -> { otp: [ { code: string, used: bool } ] }
+
+// Account Link
+// merge: PUT auth/user/merge {mergeToken: string}
+// 링크됐다면 CurrentUser에 steamId, oculusId 값이 생기는듯
+// 스팀 계정으로 로그인해도 steamId, steamDetails에 값이 생김
+
+// Password Recovery
+// sendLink: PUT auth/password {email: string}
+// setNewPassword: PUT auth/password {emailToken: string, id: string, password: string}
+
 export const enum ApiStatusCode {
     OK = 200,
     Unauthorized = 401,
@@ -435,6 +456,14 @@ export function getCurrentUser(): Promise<any> {
             pubsub.publish('USER:CURRENT', args);
         }
         return args;
+    });
+}
+
+export function logout(): Promise<any> {
+    return legacyApi('logout', {
+        method: 'PUT'
+    }).finally(() => {
+        pubsub.publish('LOGOUT');
     });
 }
 
