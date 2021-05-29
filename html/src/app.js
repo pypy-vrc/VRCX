@@ -2343,7 +2343,7 @@ speechSynthesis.getVoices();
     };
 
     API.buildFavoriteGroups = function() {
-        // 96 = ['group_0', 'group_1', 'group_2'] x 32
+        // 192 = ['group_0', 'group_1', 'group_2'] x 64
         api.favoriteFriendGroups.length = 0;
         for (var i = 0; i < 3; ++i) {
             api.favoriteFriendGroups.push({
@@ -2352,12 +2352,12 @@ speechSynthesis.getVoices();
                 type: 'friend',
                 name: `group_${i}`,
                 displayName: `Group ${i + 1}`,
-                capacity: 32,
+                capacity: 64,
                 count: 0,
                 visibility: 'private'
             });
         }
-        // 128 = ['worlds1', 'worlds2', 'worlds3', 'worlds4'] x 32
+        // 256 = ['worlds1', 'worlds2', 'worlds3', 'worlds4'] x 64
         api.favoriteWorldGroups.length = 0;
         for (var i = 0; i < 4; ++i) {
             api.favoriteWorldGroups.push({
@@ -2366,7 +2366,7 @@ speechSynthesis.getVoices();
                 type: 'world',
                 name: `worlds${i + 1}`,
                 displayName: `Group ${i + 1}`,
-                capacity: 32,
+                capacity: 64,
                 count: 0,
                 visibility: 'private'
             });
@@ -5118,14 +5118,20 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.updateFriend = async function(id, state, origin) {
+    $app.data.updateFriendInProgress = new Set();
+
+    $app.methods.updateFriend = async function(id, newState, origin) {
         var ctx = this.friends.get(id);
         if (ctx === void 0) {
             return;
         }
+        if (this.updateFriendInProgress.has(id)) {
+            return;
+        }
+        this.updateFriendInProgress.add(id);
         var ref = api.userMap.get(id);
         var isVIP = api.favoriteMapByObjectId.has(id);
-        if (state === void 0 || ctx.state === state) {
+        if (newState === void 0 || ctx.state === newState) {
             // this is should be: undefined -> user
             if (ctx.ref !== ref) {
                 ctx.ref = ref;
@@ -5196,10 +5202,13 @@ speechSynthesis.getVoices();
             ) {
                 API.getUser({
                     userId: id
+                }).catch((err) => {
+                    this.updateFriendInProgress.remove(id);
                 });
             }
         } else {
-            if (ctx.state === 'online' && state === 'active') {
+            if (ctx.state === 'online' && newState === 'active') {
+                this.updateFriendInProgress.delete(id);
                 await new Promise((resolve) => setTimeout(resolve, 50000));
                 if (this.APILastOnline.has(id)) {
                     var date = this.APILastOnline.get(id);
@@ -5223,23 +5232,31 @@ speechSynthesis.getVoices();
                 removeFromArray(this.friendsGroup3_, ctx);
                 removeFromArray(this.friendsGroupD_, ctx);
             }
-            var location = ref?.location ?? '';
-            var $location_at = ref?.$location_at ?? 0;
+            var location = '';
+            var $location_at = '';
+            if (
+                typeof ref !== 'undefined' &&
+                typeof ref.location !== 'undefined'
+            ) {
+                var {location, $location_at} = ref;
+            }
             var args = await API.getUser({
                 userId: id
+            }).catch((err) => {
+                this.updateFriendInProgress.remove(id);
             });
             if (
                 typeof args !== 'undefined' &&
                 typeof args.ref !== 'undefined'
             ) {
-                state = args.ref.state;
+                newState = args.ref.state;
                 ctx.ref = args.ref;
             }
-            if (ctx.state !== state) {
+            if (ctx.state !== newState) {
                 if (
                     typeof ctx.ref.$offline_for !== 'undefined' &&
                     ctx.ref.$offline_for === '' &&
-                    (state === 'offline' || state === 'active') &&
+                    (newState === 'offline' || newState === 'active') &&
                     ctx.state === 'online'
                 ) {
                     ctx.ref.$online_for = '';
@@ -5252,7 +5269,7 @@ speechSynthesis.getVoices();
                             time
                         });
                     }
-                } else if (state === 'online') {
+                } else if (newState === 'online') {
                     ctx.ref.$location_at = Date.now();
                     ctx.ref.$online_for = Date.now();
                     ctx.ref.$offline_for = '';
@@ -5263,8 +5280,8 @@ speechSynthesis.getVoices();
             }
             // changing property triggers Vue
             // so, we need compare and set
-            if (ctx.state !== state) {
-                ctx.state = state;
+            if (ctx.state !== newState) {
+                ctx.state = newState;
             }
             if (ctx.isVIP !== isVIP) {
                 ctx.isVIP = isVIP;
@@ -5277,6 +5294,21 @@ speechSynthesis.getVoices();
             }
             if (ctx.state === 'online') {
                 if (ctx.isVIP) {
+                    removeFromArray(this.friendsGroup0_, ctx);
+                    removeFromArray(this.friendsGroupA_, ctx);
+                } else {
+                    removeFromArray(this.friendsGroup1_, ctx);
+                    removeFromArray(this.friendsGroupB_, ctx);
+                }
+            } else if (ctx.state === 'active') {
+                removeFromArray(this.friendsGroup2_, ctx);
+                removeFromArray(this.friendsGroupC_, ctx);
+            } else {
+                removeFromArray(this.friendsGroup3_, ctx);
+                removeFromArray(this.friendsGroupD_, ctx);
+            }
+            if (newState === 'online') {
+                if (isVIP) {
                     this.sortFriendsGroup0 = true;
                     this.friendsGroup0_.push(ctx);
                     this.friendsGroupA_.unshift(ctx);
@@ -5285,7 +5317,7 @@ speechSynthesis.getVoices();
                     this.friendsGroup1_.push(ctx);
                     this.friendsGroupB_.unshift(ctx);
                 }
-            } else if (ctx.state === 'active') {
+            } else if (newState === 'active') {
                 this.sortFriendsGroup2 = true;
                 this.friendsGroup2_.push(ctx);
                 this.friendsGroupC_.unshift(ctx);
@@ -5293,6 +5325,35 @@ speechSynthesis.getVoices();
                 this.sortFriendsGroup3 = true;
                 this.friendsGroup3_.push(ctx);
                 this.friendsGroupD_.unshift(ctx);
+            }
+            // changing property triggers Vue
+            // so, we need compare and set
+            if (ctx.state !== newState) {
+                ctx.state = newState;
+            }
+            if (ctx.name !== ctx.ref.displayName) {
+                ctx.name = ctx.ref.displayName;
+            }
+            if (ctx.isVIP !== isVIP) {
+                ctx.isVIP = isVIP;
+            }
+        }
+        this.updateFriendInProgress.delete(id);
+    };
+
+    $app.methods.updateFriendGPS = function(userId) {
+        var ctx = this.friends.get(userId);
+        if (
+            typeof ctx.ref !== 'undefined' &&
+            ctx.ref.location !== 'private' &&
+            ctx.state === 'online'
+        ) {
+            if (ctx.isVIP) {
+                removeFromArray(this.friendsGroupA_, ctx);
+                this.friendsGroupA_.unshift(ctx);
+            } else {
+                removeFromArray(this.friendsGroupB_, ctx);
+                this.friendsGroupB_.unshift(ctx);
             }
         }
     };
@@ -5592,6 +5653,7 @@ speechSynthesis.getVoices();
                 location: [props.location[0], props.location[1]],
                 time: props.location[2]
             });
+            $app.updateFriendGPS(ref.id);
             $app.feedDownloadWorldCache(ref);
         }
         if (
@@ -6969,6 +7031,14 @@ speechSynthesis.getVoices();
         }
     };
     $app.data.downloadQueueTable = {
+        data: [],
+        tableProps: {
+            stripe: true,
+            size: 'mini'
+        },
+        layout: 'table'
+    };
+    $app.data.socialStatusHistoryTable = {
         data: [],
         tableProps: {
             stripe: true,
@@ -9444,9 +9514,27 @@ speechSynthesis.getVoices();
     $app.methods.showSocialStatusDialog = function() {
         this.$nextTick(() => adjustDialogZ(this.$refs.socialStatusDialog.$el));
         var D = this.socialStatusDialog;
+        var {statusHistory} = API.currentUser;
+        var statusHistoryArray = [];
+        for (var i = 0; i < statusHistory.length; ++i) {
+            var addStatus = {
+                no: i + 1,
+                status: statusHistory[i]
+            };
+            statusHistoryArray.push(addStatus);
+        }
+        this.socialStatusHistoryTable.data = statusHistoryArray;
         D.status = api.currentUser.status;
         D.statusDescription = api.currentUser.statusDescription;
         D.visible = true;
+    };
+
+    $app.methods.setSocialStatusFromHistory = function(val) {
+        if (val === null) {
+            return;
+        }
+        var D = this.socialStatusDialog;
+        D.statusDescription = val.status;
     };
 
     // App: Language Dialog
@@ -12212,7 +12300,7 @@ speechSynthesis.getVoices();
                 continue;
             }
             var params = {
-                n: 50,
+                n: 100,
                 offset: 0,
                 userId,
                 tag: list.name

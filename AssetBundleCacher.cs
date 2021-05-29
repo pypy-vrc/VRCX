@@ -159,17 +159,24 @@ namespace VRCX
         public void CancelDownload()
         {
             DownloadCanceled = true;
-            if (client != null)
+            try
             {
-                client.CancelAsync();
+                if (client != null)
+                {
+                    client.CancelAsync();
             }
             if (process != null && !process.HasExited)
             {
                 process.Kill();
                 if (File.Exists(DownloadTempLocation))
-                    File.Delete(DownloadTempLocation);
-                if (Directory.Exists(Path.Combine(AssetBundleCacherTemp, AssetId)))
-                    Directory.Delete(Path.Combine(AssetBundleCacherTemp, AssetId), true);
+                        File.Delete(DownloadTempLocation);
+                    if (Directory.Exists(Path.Combine(AssetBundleCacherTemp, AssetId)))
+                        Directory.Delete(Path.Combine(AssetBundleCacherTemp, AssetId), true);
+                }
+            }
+            catch(Exception)
+            {
+
             }
             DownloadProgress = -4;
         }
@@ -256,7 +263,7 @@ namespace VRCX
                 Directory.Delete(Path.Combine(AssetBundleCacherTemp, AssetId), true);
                 File.Delete(DownloadTempLocation);
             }
-            catch
+            catch(Exception)
             {
                 DownloadProgress = -14;
                 return;

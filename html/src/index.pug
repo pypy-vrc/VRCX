@@ -1183,7 +1183,7 @@ html
                                 template(v-for="(list, index) in userFavoriteWorlds" v-if="list")
                                     span(style="font-weight:bold;font-size:16px") {{ list[0] }}
                                     i.x-user-status(style="margin-left:5px" :class="userFavoriteWorldsStatus(list[1])")
-                                    span(style="color:#909399;font-size:12px;margin-left:5px") {{ list[2].length }}/32
+                                    span(style="color:#909399;font-size:12px;margin-left:5px") {{ list[2].length }}/64
                                     .x-friend-list(style="margin-top:10px;margin-bottom:15px;min-height:60px")
                                         .x-friend-item(v-for="world in list[2]" :key="world.id" @click="showWorldDialog(world.id)")
                                             .avatar
@@ -1467,7 +1467,14 @@ html
             //- dialog: social status
             el-dialog.x-dialog(ref="socialStatusDialog" :visible.sync="socialStatusDialog.visible" title="Social Status" width="400px")
                 div(v-loading="socialStatusDialog.loading")
-                    el-select(v-model="socialStatusDialog.status" style="dispaly:block")
+                    el-collapse(style="border:0")
+                        el-collapse-item
+                            template(slot="title")
+                                span(style="font-size:16px") History
+                            data-tables(v-bind="socialStatusHistoryTable" @row-click="setSocialStatusFromHistory" style="cursor:pointer")
+                                el-table-column(label="No" prop="no" width="40")
+                                el-table-column(label="Status" prop="status")
+                    el-select(v-model="socialStatusDialog.status" style="dispaly:block;margin-top:10px")
                         el-option(label="Online" value="active").
                             #[i.x-user-status.online] Online
                         el-option(label="Join Me" value="join me").
