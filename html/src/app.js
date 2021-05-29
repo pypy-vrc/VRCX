@@ -13,6 +13,7 @@ import ElementUI from 'element-ui';
 import locale from 'element-ui/lib/locale/lang/en';
 
 import {
+    nop,
     escapeHtml,
     commaNumber,
     formatDate,
@@ -28,7 +29,7 @@ import {parseLocation} from './location';
 import {appVersion} from './constants.js';
 import sharedRepository from './repository/shared';
 import configRepository from './repository/config';
-import gameLogService from './service/gamelog.js';
+import * as gameLogService from './service/gamelog';
 
 // use require()
 var ossDialog = require('./vue/oss_dialog');
@@ -137,13 +138,11 @@ speechSynthesis.getVoices();
 
     pubsub.subscribe('LOGOUT', function() {
         AppApi.DeleteAllCookies();
-        api.isLoggedIn.value = false;
     });
 
     pubsub.subscribe('USER:CURRENT', function(args) {
         var {json} = args;
-        args.ref = API.applyCurrentUser(json);
-        API.applyUser({
+        api.applyUser({
             id: json.id,
             username: json.username,
             displayName: json.displayName,
@@ -167,535 +166,8 @@ speechSynthesis.getVoices();
         });
     });
 
-    pubsub.subscribe('USER:CURRENT:SAVE', function(args) {
-        pubsub.publish('USER:CURRENT', args);
-    });
-
-    pubsub.subscribe('USER', function(args) {
-        args.ref = API.applyUser(args.json);
-    });
-
-    pubsub.subscribe('USER:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('USER', {
-                json,
-                params: {
-                    userId: json.id
-                }
-            });
-        }
-    });
-
-    /*
-        params: {
-            username: string,
-            password: string
-        }
-    */
-    API.login = function(params) {
-        var {username, password, saveCredentials} = params;
-        username = encodeURIComponent(username);
-        password = encodeURIComponent(password);
-        var auth = btoa(`${username}:${password}`);
-        if (saveCredentials) {
-            delete params.saveCredentials;
-            $app.saveCredentials = params;
-        }
-        return api
-            .legacyApi(`auth/user?apiKey=${api.config.clientApiKey}`, {
-                method: 'GET',
-                auth: {
-                    username,
-                    password
-                }
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params,
-                    origin: true
-                };
-                if (json.requiresTwoFactorAuth) {
-                    pubsub.publish('USER:2FA', args);
-                } else {
-                    pubsub.publish('USER:CURRENT', args);
-                }
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            steamTicket: string
-        }
-    */
-    API.loginWithSteam = function(params) {
-        return api
-            .legacyApi(`auth/steam?apiKey=${api.config.clientApiKey}`, {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params,
-                    origin: true
-                };
-                if (json.requiresTwoFactorAuth) {
-                    pubsub.publish('USER:2FA', args);
-                } else {
-                    pubsub.publish('USER:CURRENT', args);
-                }
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            code: string
-        }
-    */
-    API.verifyOTP = function(params) {
-        return api
-            .legacyApi('auth/twofactorauth/otp/verify', {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('OTP', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            code: string
-        }
-    */
-    API.verifyTOTP = function(params) {
-        return api
-            .legacyApi('auth/twofactorauth/totp/verify', {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('TOTP', args);
-                return args;
-            });
-    };
-
-    API.applyUserTrustLevel = function(ref) {
-        ref.$isModerator = ref.developerType && ref.developerType !== 'none';
-        ref.$isTroll = false;
-        var {tags} = ref;
-        if (tags.includes('admin_moderator')) {
-            ref.$isModerator = true;
-        }
-        if (
-            tags.includes('system_troll') ||
-            tags.includes('system_probable_troll')
-        ) {
-            ref.$isTroll = true;
-        }
-        if (tags.includes('system_legend')) {
-            ref.$trustLevel = 'Legendary User';
-            ref.$trustClass = 'x-tag-legendary';
-        } else if (tags.includes('system_trust_legend')) {
-            ref.$trustLevel = 'Veteran User';
-            ref.$trustClass = 'x-tag-legend';
-        } else if (tags.includes('system_trust_veteran')) {
-            ref.$trustLevel = 'Trusted User';
-            ref.$trustClass = 'x-tag-veteran';
-        } else if (tags.includes('system_trust_trusted')) {
-            ref.$trustLevel = 'Known User';
-            ref.$trustClass = 'x-tag-trusted';
-        } else if (tags.includes('system_trust_known')) {
-            ref.$trustLevel = 'User';
-            ref.$trustClass = 'x-tag-known';
-        } else if (tags.includes('system_trust_basic')) {
-            ref.$trustLevel = 'New User';
-            ref.$trustClass = 'x-tag-basic';
-        } else {
-            ref.$trustLevel = 'Visitor';
-            ref.$trustClass = 'x-tag-untrusted';
-        }
-        if (ref.$isModerator) {
-            ref.$trustLevel = 'VRChat Team';
-            ref.$trustClass = 'x-tag-vip';
-        } else if (ref.$isTroll) {
-            ref.$trustLevel = 'Nuisance';
-            ref.$trustClass = 'x-tag-troll';
-        }
-    };
-
-    // FIXME: it may performance issue. review here
-    API.applyUserLanguage = function(ref) {
-        ref.$languages = [];
-        var {tags} = ref;
-        for (var tag of tags) {
-            if (tag.startsWith('language_') === false) {
-                continue;
-            }
-            var key = tag.substr(9);
-            var value = api.subsetOfLanguages[key];
-            if (typeof value === 'undefined') {
-                continue;
-            }
-            ref.$languages.push({
-                key,
-                value
-            });
-        }
-    };
-
-    API.applyCurrentUser = function(json) {
-        var ref = api.currentUser;
-        if (api.isLoggedIn.value) {
-            Object.assign(ref, json);
-            if (ref.homeLocation !== ref.$homeLocation.location) {
-                ref.$homeLocation = parseLocation(ref.homeLocation);
-            }
-            ref.$isVRCPlus = ref.tags.includes('system_supporter');
-            API.applyUserTrustLevel(ref);
-            API.applyUserLanguage(ref);
-        } else {
-            ref = {
-                id: '',
-                username: '',
-                displayName: '',
-                userIcon: '',
-                bio: '',
-                bioLinks: [],
-                pastDisplayNames: [],
-                friends: [],
-                currentAvatarImageUrl: '',
-                currentAvatarThumbnailImageUrl: '',
-                currentAvatar: '',
-                homeLocation: '',
-                twoFactorAuthEnabled: false,
-                status: '',
-                statusDescription: '',
-                state: '',
-                tags: [],
-                developerType: '',
-                last_login: '',
-                last_platform: '',
-                date_joined: '',
-                allowAvatarCopying: false,
-                onlineFriends: [],
-                activeFriends: [],
-                offlineFriends: [],
-                // VRCX
-                $homeLocation: {},
-                $isVRCPlus: false,
-                $isModerator: false,
-                $isTroll: false,
-                $trustLevel: 'Visitor',
-                $trustClass: 'x-tag-untrusted',
-                $languages: [],
-                //
-                ...json
-            };
-            ref.$homeLocation = parseLocation(ref.homeLocation);
-            ref.$isVRCPlus = ref.tags.includes('system_supporter');
-            API.applyUserTrustLevel(ref);
-            API.applyUserLanguage(ref);
-            api.applyCurrentUser(ref);
-            api.isLoggedIn.value = true;
-            pubsub.publish('LOGIN', {
-                json,
-                ref
-            });
-        }
-        sharedRepository.setString('current_user_status', ref.status);
-        return ref;
-    };
-
-    var userUpdateQueue = [];
-    var userUpdateTimer = null;
-    var queueUserUpdate = function(ctx) {
-        userUpdateQueue.push(ctx);
-        if (userUpdateTimer !== null) {
-            return;
-        }
-        userUpdateTimer = setTimeout(function() {
-            userUpdateTimer = null;
-            var {length} = userUpdateQueue;
-            for (var i = 0; i < length; ++i) {
-                pubsub.publish('USER:UPDATE', userUpdateQueue[i]);
-            }
-            userUpdateQueue.length = 0;
-        }, 1);
-    };
-
-    API.applyUser = function(json) {
-        var ref = api.userMap.get(json.id);
-        // some missing variables on currentUser
-        if (json.id === api.currentUser.id) {
-            json.status = api.currentUser.status;
-            json.statusDescription = api.currentUser.statusDescription;
-            json.state = api.currentUser.state;
-            json.last_login = api.currentUser.last_login;
-            if ($app.lastLocation.location) {
-                json.location = $app.lastLocation.location;
-                json.$location_at = $app.lastLocation.date;
-            }
-            json.$online_for = api.currentUser.$online_for;
-            json.$offline_for = api.currentUser.$offline_for;
-        }
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                username: '',
-                displayName: '',
-                userIcon: '',
-                bio: '',
-                bioLinks: [],
-                currentAvatarImageUrl: '',
-                currentAvatarThumbnailImageUrl: '',
-                status: '',
-                statusDescription: '',
-                state: '',
-                tags: [],
-                developerType: '',
-                last_login: '',
-                last_platform: '',
-                date_joined: '',
-                allowAvatarCopying: false,
-                isFriend: false,
-                location: '',
-                worldId: '',
-                instanceId: '',
-                // VRCX
-                $location: {},
-                $location_at: Date.now(),
-                $online_for: Date.now(),
-                $offline_for: '',
-                $isVRCPlus: false,
-                $isModerator: false,
-                $isTroll: false,
-                $trustLevel: 'Visitor',
-                $trustClass: 'x-tag-untrusted',
-                $languages: [],
-                //
-                ...json
-            };
-            ref.$location = parseLocation(ref.location);
-            ref.$isVRCPlus = ref.tags.includes('system_supporter');
-            API.applyUserTrustLevel(ref);
-            API.applyUserLanguage(ref);
-            api.userMap.set(ref.id, ref);
-        } else {
-            var props = {};
-            for (var prop in ref) {
-                if (ref[prop] !== Object(ref[prop])) {
-                    props[prop] = true;
-                }
-            }
-            var $ref = {...ref};
-            Object.assign(ref, json);
-            if (ref.location !== ref.$location.location) {
-                ref.$location = parseLocation(ref.location);
-            }
-            if (ref.statusDescription) {
-                ref.statusDescription = ref.statusDescription.substring(0, 32);
-            }
-            ref.$isVRCPlus = ref.tags.includes('system_supporter');
-            API.applyUserTrustLevel(ref);
-            API.applyUserLanguage(ref);
-            for (var prop in ref) {
-                if (ref[prop] !== Object(ref[prop])) {
-                    props[prop] = true;
-                }
-            }
-            var has = false;
-            for (var prop in props) {
-                var asis = $ref[prop];
-                var tobe = ref[prop];
-                if (asis === tobe) {
-                    delete props[prop];
-                } else {
-                    has = true;
-                    props[prop] = [tobe, asis];
-                }
-            }
-            // FIXME
-            // if the status is offline, just ignore status and statusDescription only.
-            if (has && ref.status !== 'offline' && $ref.status !== 'offline') {
-                if (props.location) {
-                    var ts = Date.now();
-                    props.location.push(ts - ref.$location_at);
-                    ref.$location_at = ts;
-                }
-                queueUserUpdate({
-                    ref,
-                    props
-                });
-            }
-        }
-        return ref;
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.getUser = function(params) {
-        return api
-            .legacyApi(`users/${params.userId}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.getCachedUser = function(params) {
-        return new Promise((resolve, reject) => {
-            var ref = api.userMap.get(params.userId);
-            if (typeof ref === 'undefined') {
-                API.getUser(params)
-                    .catch(reject)
-                    .then(resolve);
-            } else {
-                resolve({
-                    cache: true,
-                    json: ref,
-                    params,
-                    ref
-                });
-            }
-        });
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            search: string,
-            sort: string ('nuisanceFactor', 'created', '_created_at', 'last_login'),
-            order: string ('ascending', 'descending')
-        }
-    */
-    API.getUsers = function(params) {
-        return api
-            .legacyApi('users', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            status: string ('active', 'offline', 'busy', 'ask me', 'join me'),
-            statusDescription: string
-        }
-    */
-    API.saveCurrentUser = function(params) {
-        return api
-            .legacyApi(`users/${api.currentUser.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER:CURRENT:SAVE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            tags: array[string]
-        }
-    */
-    API.addUserTags = function(params) {
-        return api
-            .legacyApi(`users/${api.currentUser.id}/addTags`, {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER:CURRENT:SAVE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            tags: array[string]
-        }
-    */
-    API.removeUserTags = function(params) {
-        return api
-            .legacyApi(`users/${api.currentUser.id}/removeTags`, {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER:CURRENT:SAVE', args);
-                return args;
-            });
-    };
-
-    // API: World
-
-    pubsub.subscribe('WORLD', function(args) {
-        args.ref = API.applyWorld(args.json);
-    });
-
-    pubsub.subscribe('WORLD:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('WORLD', {
-                json,
-                params: {
-                    worldId: json.id
-                }
-            });
-        }
-    });
-
     pubsub.subscribe('WORLD:DELETE', function(args) {
         var {json} = args;
-        api.worldMap.delete(json.id);
         if ($app.worldDialog.ref.authorId === json.authorId) {
             var map = new Map();
             for (var ref of api.worldMap.values()) {
@@ -708,159 +180,6 @@ speechSynthesis.getVoices();
         }
     });
 
-    pubsub.subscribe('WORLD:SAVE', function(args) {
-        var {json} = args;
-        pubsub.publish('WORLD', {
-            json,
-            params: {
-                worldId: json.id
-            }
-        });
-    });
-
-    API.applyWorld = function(json) {
-        var ref = api.worldMap.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                name: '',
-                description: '',
-                authorId: '',
-                authorName: '',
-                capacity: 0,
-                tags: [],
-                releaseStatus: '',
-                imageUrl: '',
-                thumbnailImageUrl: '',
-                assetUrl: '',
-                assetUrlObject: {},
-                pluginUrl: '',
-                pluginUrlObject: {},
-                unityPackageUrl: '',
-                unityPackageUrlObject: {},
-                unityPackages: [],
-                version: 0,
-                favorites: 0,
-                created_at: '',
-                updated_at: '',
-                publicationDate: '',
-                labsPublicationDate: '',
-                visits: 0,
-                popularity: 0,
-                heat: 0,
-                publicOccupants: 0,
-                privateOccupants: 0,
-                occupants: 0,
-                instances: [],
-                // VRCX
-                $isLabs: false,
-                //
-                ...json
-            };
-            api.worldMap.set(ref.id, ref);
-        } else {
-            Object.assign(ref, json);
-        }
-        ref.$isLabs = ref.tags.includes('system_labs');
-        return ref;
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            search: string,
-            userId: string,
-            user: string ('me','friend')
-            sort: string ('popularity','heat','trust','shuffle','favorites','reportScore','reportCount','publicationDate','labsPublicationDate','created','_created_at','updated','_updated_at','order'),
-            order: string ('ascending','descending'),
-            releaseStatus: string ('public','private','hidden','all'),
-            featured: boolean
-        },
-        option: string
-    */
-    api.getWorlds = function(params, option) {
-        var endpoint = 'worlds';
-        if (typeof option !== 'undefined') {
-            endpoint = `worlds/${option}`;
-        }
-        return api
-            .legacyApi(endpoint, {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('WORLD:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            worldId: string
-        }
-    */
-    API.deleteWorld = function(params) {
-        return api
-            .legacyApi(`worlds/${params.worldId}`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('WORLD:DELETE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            worldId: string
-        }
-    */
-    API.saveWorld = function(params) {
-        return api
-            .legacyApi(`worlds/${params.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('WORLD:SAVE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            worldId: string,
-            instanceId: string
-        }
-    */
-    API.getInstance = function(params) {
-        return api
-            .legacyApi(`instances/${params.worldId}:${params.instanceId}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('INSTANCE', args);
-                return args;
-            });
-    };
-
     pubsub.subscribe('INSTANCE', function(args) {
         var {json} = args;
         var D = $app.userDialog;
@@ -872,239 +191,11 @@ speechSynthesis.getVoices();
         }
     });
 
-    // API: Friend
-
-    pubsub.subscribe('LOGIN', function() {
-        api.friends200.clear();
-        api.friends404.clear();
-        api.isFriendsLoading.value = false;
-    });
-
-    pubsub.subscribe('USER', function(args) {
-        api.friends200.add(args.ref.id);
-        api.friends404.delete(args.ref.id);
-    });
-
-    pubsub.subscribe('FRIEND:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('USER', {
-                json,
-                params: {
-                    userId: json.id
-                }
-            });
-        }
-    });
-
-    API.isAllFriendsRetrived = function(flag) {
-        if (flag) {
-            for (var id of api.currentUser.friends) {
-                if (api.friends200.has(id) === false) {
-                    var n = api.friends404.get(id) || 0;
-                    if (n < 2) {
-                        api.friends404.set(id, n + 1);
-                    }
-                }
-            }
-        } else {
-            for (var id of api.currentUser.friends) {
-                if (
-                    api.friends200.has(id) === false ||
-                    api.friends404.get(id) < 2
-                ) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    };
-
-    API.refreshFriends = async function() {
-        api.isFriendsLoading.value = true;
-
-        try {
-            var missingFriendIdSet = new Set(api.currentUser.friends);
-
-            // fetch online friend list
-            for (var offset = 0; missingFriendIdSet.size > 0; offset += 50) {
-                var {json} = await API.getFriends({
-                    n: 50,
-                    offset,
-                    offline: 'false'
-                });
-                if (json === void 0 || json.length === 0) {
-                    break;
-                }
-                for (var apiUser of json) {
-                    missingFriendIdSet.delete(apiUser.id);
-                }
-            }
-
-            // fetch offline friend list
-            for (var offset = 0; missingFriendIdSet.size > 0; offset += 50) {
-                var {json} = await API.getFriends({
-                    n: 50,
-                    offset,
-                    offline: 'true'
-                });
-                if (json === void 0 || json.length === 0) {
-                    break;
-                }
-                for (var apiUser of json) {
-                    missingFriendIdSet.delete(apiUser.id);
-                }
-            }
-
-            console.log('missingFriendIds', missingFriendIdSet);
-        } catch (err) {
-            console.error(err);
-        }
-
-        api.isFriendsLoading.value = false;
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            offline: boolean
-        }
-    */
-    API.getFriends = function(params) {
-        return api
-            .legacyApi('auth/user/friends', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FRIEND:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.deleteFriend = function(params) {
-        return api
-            .legacyApi(`auth/user/friends/${params.userId}`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FRIEND:DELETE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.sendFriendRequest = function(params) {
-        return api
-            .legacyApi(`user/${params.userId}/friendRequest`, {
-                method: 'POST'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FRIEND:REQUEST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.cancelFriendRequest = function(params) {
-        return api
-            .legacyApi(`user/${params.userId}/friendRequest`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FRIEND:REQUEST:CANCEL', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            userId: string
-        }
-    */
-    API.getFriendStatus = function(params) {
-        return api
-            .legacyApi(`user/${params.userId}/friendStatus`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FRIEND:STATUS', args);
-                return args;
-            });
-    };
-
-    // API: Avatar
-
-    API.cachedAvatars = new Map();
-
-    pubsub.subscribe('AVATAR', function(args) {
-        args.ref = API.applyAvatar(args.json);
-    });
-
-    pubsub.subscribe('AVATAR:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('AVATAR', {
-                json,
-                params: {
-                    avatarId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('AVATAR:SAVE', function(args) {
-        var {json} = args;
-        pubsub.publish('AVATAR', {
-            json,
-            params: {
-                avatarId: json.id
-            }
-        });
-    });
-
-    pubsub.subscribe('AVATAR:SELECT', function(args) {
-        pubsub.publish('USER:CURRENT', args);
-    });
-
     pubsub.subscribe('AVATAR:DELETE', function(args) {
         var {json} = args;
-        API.cachedAvatars.delete(json._id);
         if ($app.userDialog.id === json.authorId) {
             var map = new Map();
-            for (var ref of API.cachedAvatars.values()) {
+            for (var ref of api.avatarMap.values()) {
                 if (ref.authorId === json.authorId) {
                     map.set(ref.id, ref);
                 }
@@ -1114,1668 +205,19 @@ speechSynthesis.getVoices();
         }
     });
 
-    API.applyAvatar = function(json) {
-        var ref = API.cachedAvatars.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                name: '',
-                description: '',
-                authorId: '',
-                authorName: '',
-                tags: [],
-                assetUrl: '',
-                assetUrlObject: {},
-                imageUrl: '',
-                thumbnailImageUrl: '',
-                releaseStatus: '',
-                version: 0,
-                unityPackages: [],
-                unityPackageUrl: '',
-                unityPackageUrlObject: {},
-                created_at: '',
-                updated_at: '',
-                ...json
-            };
-            API.cachedAvatars.set(ref.id, ref);
-        } else {
-            Object.assign(ref, json);
-        }
-        return ref;
-    };
-
-    /*
-        params: {
-            avatarId: string
-        }
-    */
-    API.getAvatar = function(params) {
-        return api
-            .legacyApi(`avatars/${params.avatarId}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            search: string,
-            userId: string,
-            user: string ('me','friends')
-            sort: string ('created','updated','order','_created_at','_updated_at'),
-            order: string ('ascending','descending'),
-            releaseStatus: string ('public','private','hidden','all'),
-            featured: boolean
-        }
-    */
-    API.getAvatars = function(params) {
-        return api
-            .legacyApi('avatars', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            id: string
-            releaseStatus: string ('public','private'),
-        }
-    */
-    API.saveAvatar = function(params) {
-        return api
-            .legacyApi(`avatars/${params.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR:SAVE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            avatarId: string
-        }
-    */
-    API.selectAvatar = function(params) {
-        return api
-            .legacyApi(`avatars/${params.avatarId}/select`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR:SELECT', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            avatarId: string
-        }
-    */
-    API.selectFallbackAvatar = function(params) {
-        return api
-            .legacyApi(`avatars/${params.avatarId}/selectfallback`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR:SELECT', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            avatarId: string
-        }
-    */
-    API.deleteAvatar = function(params) {
-        return api
-            .legacyApi(`avatars/${params.avatarId}`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATAR:DELETE', args);
-                return args;
-            });
-    };
-
-    // API: Notification
-
-    pubsub.subscribe('LOGIN', function() {
-        api.notificationMap.clear();
-        api.isNotificationsLoading.value = false;
-    });
-
-    pubsub.subscribe('NOTIFICATION', function(args) {
-        args.ref = API.applyNotification(args.json);
-    });
-
-    pubsub.subscribe('NOTIFICATION:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('NOTIFICATION', {
-                json,
-                params: {
-                    notificationId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('NOTIFICATION:ACCEPT', function(args) {
-        var ref = api.notificationMap.get(args.params.notificationId);
-        if (typeof ref === 'undefined' || ref.$isDeleted) {
-            return;
-        }
-        args.ref = ref;
-        ref.$isDeleted = true;
-        pubsub.publish('NOTIFICATION:@DELETE', {
-            ref,
-            params: {
-                notificationId: ref.id
-            }
-        });
-        pubsub.publish('FRIEND:ADD', {
-            params: {
-                userId: ref.senderUserId
-            }
-        });
-    });
-
-    pubsub.subscribe('NOTIFICATION:HIDE', function(args) {
-        var ref = api.notificationMap.get(args.params.notificationId);
-        if (typeof ref === 'undefined' && ref.$isDeleted) {
-            return;
-        }
-        args.ref = ref;
-        ref.$isDeleted = true;
-        pubsub.publish('NOTIFICATION:@DELETE', {
-            ref,
-            params: {
-                notificationId: ref.id
-            }
-        });
-    });
-
-    API.applyNotification = function(json) {
-        var ref = api.notificationMap.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                senderUserId: '',
-                senderUsername: '',
-                type: '',
-                message: '',
-                details: {},
-                seen: false,
-                created_at: '',
-                // VRCX
-                $isDeleted: false,
-                $isExpired: false,
-                //
-                ...json
-            };
-            api.notificationMap.set(ref.id, ref);
-        } else {
-            Object.assign(ref, json);
-            ref.$isExpired = false;
-        }
-        if (ref.details !== Object(ref.details)) {
-            var details = {};
-            if (ref.details !== '{}') {
-                try {
-                    var object = JSON.parse(ref.details);
-                    if (object === Object(object)) {
-                        details = object;
-                    }
-                } catch (err) {}
-            }
-            ref.details = details;
-        }
-        return ref;
-    };
-
-    API.expireNotifications = function() {
-        for (var ref of api.notificationMap.values()) {
-            ref.$isExpired = true;
-        }
-    };
-
-    API.deleteExpiredNotifcations = function() {
-        for (var ref of api.notificationMap.values()) {
-            if (ref.$isDeleted || ref.$isExpired === false) {
-                continue;
-            }
-            ref.$isDeleted = true;
-            pubsub.publish('NOTIFICATION:@DELETE', {
-                ref,
-                params: {
-                    notificationId: ref.id
-                }
-            });
-        }
-    };
-
-    API.refreshNotifications = function() {
-        // NOTE : 캐시 때문에 after=~ 로는 갱신이 안됨. 그래서 첨부터 불러옴
-        if (api.isNotificationsLoading.value) {
-            return;
-        }
-        api.isNotificationsLoading.value = true;
-        API.expireNotifications();
-        API.expireNotifications();
-        API.getNotifications({n: 100}).then(() => {
-            API.deleteExpiredNotifcations();
-            api.isNotificationsLoading.value = false;
-            $app.unseenNotifications = [];
-        });
-        try {
-            API.getNotifications({n: 100});
-        } catch (err) {
-            console.error(err);
-        }
-        API.deleteExpiredNotifcations();
-        api.isNotificationsLoading.value = false;
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            sent: boolean,
-            type: string,
-            after: string (ISO8601 or 'five_minutes_ago')
-        }
-    */
-    API.getNotifications = function(params) {
-        return api
-            .legacyApi('auth/user/notifications', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('NOTIFICATION:LIST', args);
-                return args;
-            });
-    };
-
-    API.clearNotifications = function() {
-        return api
-            .legacyApi('auth/user/notifications/clear', {
-                method: 'PUT'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                // FIXME: NOTIFICATION:CLEAR 핸들링
-                pubsub.publish('NOTIFICATION:CLEAR', args);
-                return args;
-            });
-    };
-
-    API.sendInvitePhoto = function(receiverUserId, params) {
-        var formData = new FormData();
-        for (var key of Object.keys(params)) {
-            formData.set(key, params[key]);
-        }
-        return api
-            .legacyApi(`invite/${receiverUserId}/photo`, {
-                method: 'POST',
-                params: formData
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('NOTIFICATION:INVITE:PHOTO:SEND', args);
-                return args;
-            });
-    };
-
-    API.sendRequestInvite = function(receiverUserId, params) {
-        return api
-            .legacyApi(`requestInvite/${receiverUserId}`, {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('NOTIFICATION:REQUESTINVITE:SEND', args);
-                return args;
-            });
-    };
-
-    API.sendRequestInvitePhoto = function(receiverUserId, params) {
-        var formData = new FormData();
-        for (var key of Object.keys(params)) {
-            formData.set(key, params[key]);
-        }
-        return api
-            .legacyApi(`requestInvite/${receiverUserId}/photo`, {
-                method: 'POST',
-                params: formData
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('NOTIFICATION:REQUESTINVITE:PHOTO:SEND', args);
-                return args;
-            });
-    };
-
-    API.sendInviteResponse = function(inviteId, params) {
-        return api
-            .legacyApi(`invite/${inviteId}/response`, {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    inviteID: inviteId
-                };
-                pubsub.publish('INVITE:RESPONSE:SEND', args);
-                return args;
-            });
-    };
-
-    API.sendInviteResponsePhoto = function(inviteId, params) {
-        var formData = new FormData();
-        for (var key of Object.keys(params)) {
-            formData.set(key, params[key]);
-        }
-        return api
-            .legacyApi(`invite/${inviteID}/response/photo`, {
-                method: 'POST',
-                params: formData
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    inviteID
-                };
-                pubsub.publish('INVITE:RESPONSE:PHOTO:SEND', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            notificationId: string
-        }
-    */
-    API.acceptNotification = function(params) {
-        return api
-            .legacyApi(
-                `auth/user/notifications/${params.notificationId}/accept`,
-                {
-                    method: 'PUT'
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('NOTIFICATION:ACCEPT', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            notificationId: string
-        }
-    */
-    API.hideNotification = function(params) {
-        return api
-            .legacyApi(
-                `auth/user/notifications/${params.notificationId}/hide`,
-                {
-                    method: 'PUT'
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('NOTIFICATION:HIDE', args);
-                return args;
-            });
-    };
-
-    API.getFriendRequest = function(userId) {
-        for (var ref of api.notificationMap.values()) {
-            if (
-                ref.$isDeleted === false &&
-                ref.type === 'friendRequest' &&
-                ref.senderUserId === userId
-            ) {
-                return ref.id;
-            }
-        }
-        return '';
-    };
-
-    API.parseInviteLocation = function(ref) {
-        try {
-            var L = parseLocation(ref.details.worldId);
-            if (L.worldId && L.instanceId) {
-                return `${ref.details.worldName} #${L.name} ${L.accessType}`;
-            }
-            return ref.message || ref.details.worldId || ref.details.worldName;
-        } catch (err) {
-            return '';
-        }
-    };
-
-    // API: PlayerModeration
-
-    pubsub.subscribe('LOGIN', function() {
-        api.playerModerationMap.clear();
-        api.isPlayerModerationsLoading.value = false;
-        API.refreshPlayerModerations();
-    });
-
-    pubsub.subscribe('PLAYER-MODERATION', function(args) {
-        args.ref = API.applyPlayerModeration(args.json);
-    });
-
-    pubsub.subscribe('PLAYER-MODERATION:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('PLAYER-MODERATION', {
-                json,
-                params: {
-                    playerModerationId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('PLAYER-MODERATION:SEND', function(args) {
-        var ref = {
-            json: args.json,
-            params: {
-                playerModerationId: args.json.id
-            }
-        };
-        pubsub.publish('PLAYER-MODERATION', ref);
-        pubsub.publish('PLAYER-MODERATION:@SEND', ref);
-    });
-
-    pubsub.subscribe('PLAYER-MODERATION:DELETE', function(args) {
-        var {type, moderated} = args.params;
-        var userId = api.currentUser.id;
-        for (var ref of api.playerModerationMap.values()) {
-            if (
-                ref.$isDeleted === false &&
-                ref.type === type &&
-                ref.targetUserId === moderated &&
-                ref.sourceUserId === userId
-            ) {
-                ref.$isDeleted = true;
-                pubsub.publish('PLAYER-MODERATION:@DELETE', {
-                    ref,
-                    params: {
-                        playerModerationId: ref.id
-                    }
-                });
-            }
-        }
-    });
-
-    API.applyPlayerModeration = function(json) {
-        var ref = api.playerModerationMap.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                type: '',
-                sourceUserId: '',
-                sourceDisplayName: '',
-                targetUserId: '',
-                targetDisplayName: '',
-                created: '',
-                // VRCX
-                $isDeleted: false,
-                $isExpired: false,
-                //
-                ...json
-            };
-            api.playerModerationMap.set(ref.id, ref);
-        } else {
-            Object.assign(ref, json);
-            ref.$isExpired = false;
-        }
-        return ref;
-    };
-
-    API.expirePlayerModerations = function() {
-        for (var ref of api.playerModerationMap.values()) {
-            ref.$isExpired = true;
-        }
-    };
-
-    API.deleteExpiredPlayerModerations = function() {
-        for (var ref of api.playerModerationMap.values()) {
-            if (ref.$isDeleted || ref.$isExpired === false) {
-                continue;
-            }
-            ref.$isDeleted = true;
-            pubsub.publish('PLAYER-MODERATION:@DELETE', {
-                ref,
-                params: {
-                    playerModerationId: ref.id
-                }
-            });
-        }
-    };
-
-    API.refreshPlayerModerations = function() {
-        if (api.isPlayerModerationsLoading.value) {
-            return;
-        }
-        api.isPlayerModerationsLoading.value = true;
-        API.expirePlayerModerations();
-        Promise.all([
-            API.getPlayerModerations()
-            //API.getPlayerModerationsAgainstMe();
-        ])
-            .finally(() => {
-                api.isPlayerModerationsLoading.value = false;
-            })
-            .then(() => {
-                API.deleteExpiredPlayerModerations();
-            });
-    };
-
-    API.getPlayerModerations = function() {
-        return api
-            .legacyApi('auth/user/playermoderations', {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('PLAYER-MODERATION:LIST', args);
-                return args;
-            });
-    };
-
-    API.getPlayerModerationsAgainstMe = function() {
-        return api
-            .legacyApi('auth/user/playermoderated', {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('PLAYER-MODERATION:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            moderated: string,
-            type: string
-        }
-    */
-    // old-way: POST auth/user/blocks {blocked:userId}
-    API.sendPlayerModeration = function(params) {
-        return api
-            .legacyApi('auth/user/playermoderations', {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('PLAYER-MODERATION:SEND', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            moderated: string,
-            type: string
-        }
-    */
-    // old-way: PUT auth/user/unblocks {blocked:userId}
-    API.deletePlayerModeration = function(params) {
-        return api
-            .legacyApi('auth/user/unplayermoderate', {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('PLAYER-MODERATION:DELETE', args);
-                return args;
-            });
-    };
-
-    // API: Favorite
-
-    pubsub.subscribe('LOGIN', function() {
-        api.favoriteMap.clear();
-        api.favoriteMapByObjectId.clear();
-        api.favoriteGroupMap.clear();
-        api.favoriteGroupMapByTypeName.clear();
-        api.favoriteFriendGroups.length = 0;
-        api.favoriteWorldGroups.length = 0;
-        api.favoriteAvatarGroups.length = 0;
-        api.isFavoriteLoading.value = false;
-        api.isFavoriteGroupLoading.value = false;
-        API.refreshFavorites();
-    });
-
-    pubsub.subscribe('FAVORITE', function(args) {
-        var ref = API.applyFavorite(args.json);
-        if (ref.$isDeleted) {
-            return;
-        }
-        args.ref = ref;
-    });
-
-    pubsub.subscribe('FAVORITE:@DELETE', function(args) {
-        var {ref} = args;
-        if (ref.$groupRef !== null) {
-            --ref.$groupRef.count;
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('FAVORITE', {
-                json,
-                params: {
-                    favoriteId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:ADD', function(args) {
-        pubsub.publish('FAVORITE', {
-            json: args.json,
-            params: {
-                favoriteId: args.json.id
-            }
-        });
-    });
-
-    pubsub.subscribe('FAVORITE:ADD', function(args) {
-        if (
-            args.params.type === 'avatar' &&
-            !API.cachedAvatars.has(args.params.favoriteId)
-        ) {
-            API.refreshFavoriteAvatars(args.params.tags);
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:DELETE', function(args) {
-        var ref = api.favoriteMapByObjectId.get(args.params.objectId);
-        if (typeof ref === 'undefined') {
-            return;
-        }
-        // 애초에 $isDeleted인데 여기로 올 수 가 있나..?
-        api.favoriteMapByObjectId.delete(args.params.objectId);
-        if (ref.$isDeleted) {
-            return;
-        }
-        args.ref = ref;
-        ref.$isDeleted = true;
-        pubsub.publish('FAVORITE:@DELETE', {
-            ref,
-            params: {
-                favoriteId: ref.id
-            }
-        });
-    });
-
-    pubsub.subscribe('FAVORITE:GROUP', function(args) {
-        var ref = API.applyFavoriteGroup(args.json);
-        if (ref.$isDeleted) {
-            return;
-        }
-        args.ref = ref;
-        if (ref.$groupRef !== null) {
-            ref.$groupRef.displayName = ref.displayName;
-            ref.$groupRef.visibility = ref.visibility;
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:GROUP:LIST', function(args) {
-        for (var json of args.json) {
-            pubsub.publish('FAVORITE:GROUP', {
-                json,
-                params: {
-                    favoriteGroupId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:GROUP:SAVE', function(args) {
-        pubsub.publish('FAVORITE:GROUP', {
-            json: args.json,
-            params: {
-                favoriteGroupId: args.json.id
-            }
-        });
-    });
-
-    pubsub.subscribe('FAVORITE:GROUP:CLEAR', function(args) {
-        var key = `${args.params.type}:${args.params.group}`;
-        for (var ref of api.favoriteMap.values()) {
-            if (ref.$isDeleted || ref.$groupKey !== key) {
-                continue;
-            }
-            api.favoriteMapByObjectId.delete(ref.favoriteId);
-            ref.$isDeleted = true;
-            pubsub.publish('FAVORITE:@DELETE', {
-                ref,
-                params: {
-                    favoriteId: ref.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:WORLD:LIST', function(args) {
-        for (var json of args.json) {
-            if (json.id === '???') {
-                // FIXME
-                // json.favoriteId로 따로 불러와야 하나?
-                // 근데 ???가 많으면 과다 요청이 될듯
-                continue;
-            }
-            pubsub.publish('WORLD', {
-                json,
-                params: {
-                    worldId: json.id
-                }
-            });
-        }
-    });
-
-    pubsub.subscribe('FAVORITE:AVATAR:LIST', function(args) {
-        for (var json of args.json) {
-            if (json.releaseStatus === 'hidden') {
-                // NOTE: 얘는 또 더미 데이터로 옴
-                continue;
-            }
-            pubsub.publish('AVATAR', {
-                json,
-                params: {
-                    avatarId: json.id
-                }
-            });
-        }
-    });
-
-    API.applyFavorite = function(json) {
-        var ref = api.favoriteMap.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                type: '',
-                favoriteId: '',
-                tags: [],
-                // VRCX
-                $isDeleted: false,
-                $isExpired: false,
-                $groupKey: '',
-                $groupRef: null,
-                //
-                ...json
-            };
-            api.favoriteMap.set(ref.id, ref);
-            api.favoriteMapByObjectId.set(ref.favoriteId, ref);
-        } else {
-            Object.assign(ref, json);
-            ref.$isExpired = false;
-        }
-        ref.$groupKey = `${ref.type}:${String(ref.tags[0])}`;
-        if (ref.$isDeleted === false && ref.$groupRef === null) {
-            var group = api.favoriteGroupMapByTypeName.get(ref.$groupKey);
-            if (typeof group !== 'undefined') {
-                ref.$groupRef = group;
-                ++group.count;
-            }
-        }
-        return ref;
-    };
-
-    API.expireFavorites = function() {
-        for (var ref of api.favoriteMap.values()) {
-            ref.$isExpired = true;
-        }
-    };
-
-    API.deleteExpiredFavorites = function() {
-        for (var ref of api.favoriteMap.values()) {
-            if (ref.$isDeleted || ref.$isExpired === false) {
-                continue;
-            }
-            ref.$isDeleted = true;
-            pubsub.publish('FAVORITE:@DELETE', {
-                ref,
-                params: {
-                    favoriteId: ref.id
-                }
-            });
-        }
-    };
-
-    API.refreshFavoriteAvatars = function(tag) {
-        var params = {
-            n: 100,
-            offset: 0,
-            tag
-        };
-        API.getFavoriteAvatars(params);
-    };
-
-    API.refreshFavoriteItems = async function() {
-        var favoriteGroups = {
-            world: [0, 'getFavoriteWorlds'],
-            avatar: [0, 'getFavoriteAvatars']
-        };
-        var avatarTags = [];
-        for (var apiFavorite of api.favoriteMap.values()) {
-            if (apiFavorite.$isDeleted) {
-                continue;
-            }
-            var favoriteGroup = favoriteGroups[apiFavorite.type];
-            if (favoriteGroup === void 0) {
-                continue;
-            }
-            if (
-                apiFavorite.type === 'avatar' &&
-                !avatarTags.includes(apiFavorite.tags[0])
-            ) {
-                avatarTags.push(apiFavorite.tags[0]);
-            }
-            ++favoriteGroup[0];
-        }
-        if (favoriteGroups.world[0] > 0) {
-            try {
-                for (var offset = 0; ; offset += 100) {
-                    var {json} = await API.getFavoriteWorlds({
-                        n: 100,
-                        offset
-                    });
-                    if (json === void 0 || json.length === 0) {
-                        break;
-                    }
-                }
-            } catch (err) {
-                console.log(err);
-            }
-        }
-        if (favoriteGroups.avatar[0] > 0) {
-            try {
-                for (var tag of avatarTags) {
-                    for (var offset = 0; ; offset += 100) {
-                        var {json} = await API.getFavoriteAvatars({
-                            n: 100,
-                            offset,
-                            tag
-                        });
-                        if (json === void 0 || json.length === 0) {
-                            break;
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-    };
-
-    API.refreshFavorites = async function() {
-        if (api.isFavoriteLoading.value) {
-            return;
-        }
-        api.isFavoriteLoading.value = true;
-        API.expireFavorites();
-        try {
-            for (var offset = 0; ; offset += 100) {
-                var {json} = await API.getFavorites({
-                    n: 100,
-                    offset
-                });
-                if (json === void 0 || json.length === 0) {
-                    break;
-                }
-            }
-        } catch (err) {
-            console.error(err);
-        }
-        API.deleteExpiredFavorites();
-        API.refreshFavoriteItems();
-        API.refreshFavoriteGroups();
-        api.isFavoriteLoading.value = false;
-    };
-
-    API.applyFavoriteGroup = function(json) {
-        var ref = api.favoriteGroupMap.get(json.id);
-        if (typeof ref === 'undefined') {
-            ref = {
-                id: '',
-                ownerId: '',
-                ownerDisplayName: '',
-                name: '',
-                displayName: '',
-                type: '',
-                visibility: '',
-                tags: [],
-                // VRCX
-                $isDeleted: false,
-                $isExpired: false,
-                $groupRef: null,
-                //
-                ...json
-            };
-            api.favoriteGroupMap.set(ref.id, ref);
-        } else {
-            Object.assign(ref, json);
-            ref.$isExpired = false;
-        }
-        return ref;
-    };
-
-    API.buildFavoriteGroups = function() {
-        // 192 = ['group_0', 'group_1', 'group_2'] x 64
-        api.favoriteFriendGroups.length = 0;
-        for (var i = 0; i < 3; ++i) {
-            api.favoriteFriendGroups.push({
-                assign: false,
-                key: `friend:group_${i}`,
-                type: 'friend',
-                name: `group_${i}`,
-                displayName: `Group ${i + 1}`,
-                capacity: 64,
-                count: 0,
-                visibility: 'private'
-            });
-        }
-        // 256 = ['worlds1', 'worlds2', 'worlds3', 'worlds4'] x 64
-        api.favoriteWorldGroups.length = 0;
-        for (var i = 0; i < 4; ++i) {
-            api.favoriteWorldGroups.push({
-                assign: false,
-                key: `world:worlds${i + 1}`,
-                type: 'world',
-                name: `worlds${i + 1}`,
-                displayName: `Group ${i + 1}`,
-                capacity: 64,
-                count: 0,
-                visibility: 'private'
-            });
-        }
-        // 100 = ['avatars1'] x 25
-        // Favorite Avatars (0/25)
-        // VRC+ Group 1 (0/25)
-        // VRC+ Group 2 (0/25)
-        // VRC+ Group 3 (0/25)
-        var avatarGroupNames = [
-            'Favorite Avatars',
-            'VRC+ Group 1',
-            'VRC+ Group 2',
-            'VRC+ Group 3'
-        ];
-        api.favoriteAvatarGroups.length = 0;
-        for (var i = 0; i < 4; ++i) {
-            api.favoriteAvatarGroups.push({
-                assign: false,
-                key: `avatar:avatars${i + 1}`,
-                type: 'avatar',
-                name: `avatars${i + 1}`,
-                displayName: avatarGroupNames[i],
-                capacity: 25,
-                count: 0,
-                visibility: 'private'
-            });
-        }
-        var types = {
-            friend: api.favoriteFriendGroups,
-            world: api.favoriteWorldGroups,
-            avatar: api.favoriteAvatarGroups
-        };
-        var assigns = new Set();
-        // assign the same name first
-        for (var ref of api.favoriteGroupMap.values()) {
-            if (ref.$isDeleted) {
-                continue;
-            }
-            var groups = types[ref.type];
-            if (typeof groups === 'undefined') {
-                continue;
-            }
-            for (var group of groups) {
-                if (group.assign === false && group.name === ref.name) {
-                    group.assign = true;
-                    if (ref.type !== 'avatar') {
-                        group.displayName = ref.displayName;
-                    }
-                    group.visibility = ref.visibility;
-                    ref.$groupRef = group;
-                    assigns.add(ref.id);
-                    break;
-                }
-            }
-        }
-        // assign the rest
-        // FIXME
-        // The order (cachedFavoriteGroups) is very important. It should be
-        // processed in the order in which the server responded. But since we
-        // used Map(), the order would be a mess. So we need something to solve
-        // this.
-        for (var ref of api.favoriteGroupMap.values()) {
-            if (ref.$isDeleted || assigns.has(ref.id)) {
-                continue;
-            }
-            var groups = types[ref.type];
-            if (typeof groups === 'undefined') {
-                continue;
-            }
-            for (var group of groups) {
-                if (group.assign === false) {
-                    group.assign = true;
-                    group.key = `${group.type}:${ref.name}`;
-                    group.name = ref.name;
-                    if (ref.type !== 'avatar') {
-                        group.displayName = ref.displayName;
-                    }
-                    ref.$groupRef = group;
-                    assigns.add(ref.id);
-                    break;
-                }
-            }
-        }
-        // update favorites
-        api.favoriteGroupMapByTypeName.clear();
-        for (var type in types) {
-            for (var group of types[type]) {
-                api.favoriteGroupMapByTypeName.set(group.key, group);
-            }
-        }
-        for (var ref of api.favoriteMap.values()) {
-            ref.$groupRef = null;
-            if (ref.$isDeleted) {
-                continue;
-            }
-            var group = api.favoriteGroupMapByTypeName.get(ref.$groupKey);
-            if (typeof group === 'undefined') {
-                continue;
-            }
-            ref.$groupRef = group;
-            ++group.count;
-        }
-    };
-
-    API.expireFavoriteGroups = function() {
-        for (var ref of api.favoriteGroupMap.values()) {
-            ref.$isExpired = true;
-        }
-    };
-
-    API.deleteExpiredFavoriteGroups = function() {
-        for (var ref of api.favoriteGroupMap.values()) {
-            if (ref.$isDeleted || ref.$isExpired === false) {
-                continue;
-            }
-            ref.$isDeleted = true;
-            pubsub.publish('FAVORITE:GROUP:@DELETE', {
-                ref,
-                params: {
-                    favoriteGroupId: ref.id
-                }
-            });
-        }
-    };
-
-    API.refreshFavoriteGroups = async function() {
-        if (api.isFavoriteGroupLoading.value) {
-            return;
-        }
-        api.isFavoriteGroupLoading.value = true;
-        API.expireFavoriteGroups();
-        try {
-            for (var offset = 0; ; offset += 100) {
-                var {json} = await API.getFavoriteGroups({
-                    n: 100,
-                    offset
-                });
-                if (json === void 0 || json.length === 0) {
-                    break;
-                }
-            }
-        } catch (err) {
-            console.error(err);
-        }
-        API.deleteExpiredFavoriteGroups();
-        this.buildFavoriteGroups();
-        api.isFavoriteGroupLoading.value = false;
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            type: string,
-            tag: string
-        }
-    */
-    API.getFavorites = function(params) {
-        return api
-            .legacyApi('favorites', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            type: string,
-            favoriteId: string (objectId),
-            tags: string
-        }
-    */
-    API.addFavorite = function(params) {
-        return api
-            .legacyApi('favorites', {
-                method: 'POST',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:ADD', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            objectId: string
-        }
-    */
-    API.deleteFavorite = function(params) {
-        return api
-            .legacyApi(`favorites/${params.objectId}`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:DELETE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number,
-            type: string
-        }
-    */
-    API.getFavoriteGroups = function(params) {
-        return api
-            .legacyApi('favorite/groups', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:GROUP:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            type: string,
-            group: string (name),
-            displayName: string,
-            visibility: string
-        }
-    */
-    API.saveFavoriteGroup = function(params) {
-        return api
-            .legacyApi(
-                `favorite/group/${params.type}/${params.group}/${api.currentUser.id}`,
-                {
-                    method: 'PUT',
-                    params
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:GROUP:SAVE', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            type: string,
-            group: string (name)
-        }
-    */
-    API.clearFavoriteGroup = function(params) {
-        return api
-            .legacyApi(
-                `favorite/group/${params.type}/${params.group}/${api.currentUser.id}`,
-                {
-                    method: 'DELETE',
-                    params
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:GROUP:CLEAR', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number
-        }
-    */
-    API.getFavoriteWorlds = function(params) {
-        return api
-            .legacyApi('worlds/favorites', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:WORLD:LIST', args);
-                return args;
-            });
-    };
-
-    /*
-        params: {
-            n: number,
-            offset: number
-        }
-    */
-    API.getFavoriteAvatars = function(params) {
-        return api
-            .legacyApi('avatars/favorites', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('FAVORITE:AVATAR:LIST', args);
-                return args;
-            });
-    };
-
     // API: WebSocket
-
-    API.webSocket = null;
-
-    pubsub.subscribe('LOGOUT', function() {
-        API.closeWebSocket();
-    });
-
-    pubsub.subscribe('USER:CURRENT', function() {
-        if (API.webSocket === null) {
-            API.getAuth();
+    pubsub.subscribe('PIPELINE', function({json}) {
+        if ($app.debugWebSocket) {
+            var displayName = '';
+            if (api.userMap.has(json.content.userId)) {
+                var user = api.userMap.get(json.content.userId);
+                displayName = user.displayName;
+            }
+            console.log('WebSocket', json.type, displayName, json.content);
         }
     });
-
-    pubsub.subscribe('AUTH', function(args) {
-        if (args.json.ok) {
-            API.connectWebSocket(args.json.token);
-        }
-    });
-
-    pubsub.subscribe('PIPELINE', function(args) {
-        var {type, content} = args.json;
-        if (typeof content.user !== 'undefined') {
-            delete content.user.state;
-        }
-        switch (type) {
-            case 'notification':
-                pubsub.publish('NOTIFICATION', {
-                    json: content,
-                    params: {
-                        notificationId: content.id
-                    }
-                });
-                break;
-
-            case 'notification-see':
-                pubsub.publish('NOTIFICATION:SEE', {
-                    params: {
-                        notificationId: content.notificationId
-                    }
-                });
-                break;
-
-            case 'friend-add':
-                pubsub.publish('USER', {
-                    json: content.user,
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                pubsub.publish('FRIEND:ADD', {
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-delete':
-                pubsub.publish('FRIEND:DELETE', {
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-online':
-                if (content.location !== 'private') {
-                    pubsub.publish('WORLD', {
-                        json: content.world,
-                        params: {
-                            worldId: content.world.id
-                        }
-                    });
-                }
-                pubsub.publish('USER', {
-                    json: {
-                        location: content.location,
-                        ...content.user
-                    },
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                pubsub.publish('FRIEND:STATE', {
-                    json: {
-                        state: 'online'
-                    },
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-active':
-                pubsub.publish('USER', {
-                    json: content.user,
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                pubsub.publish('FRIEND:STATE', {
-                    json: {
-                        state: 'active'
-                    },
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-offline':
-                pubsub.publish('FRIEND:STATE', {
-                    json: {
-                        state: 'offline'
-                    },
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-update':
-                pubsub.publish('USER', {
-                    json: content.user,
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'friend-location':
-                if (content.location !== 'private') {
-                    pubsub.publish('WORLD', {
-                        json: content.world,
-                        params: {
-                            worldId: content.world.id
-                        }
-                    });
-                }
-                if (content.userId === api.currentUser.id) {
-                    pubsub.publish('USER', {
-                        json: content.user,
-                        params: {
-                            userId: content.userId
-                        }
-                    });
-                } else {
-                    pubsub.publish('USER', {
-                        json: {
-                            location: content.location,
-                            ...content.user
-                        },
-                        params: {
-                            userId: content.userId
-                        }
-                    });
-                }
-                break;
-
-            case 'user-update':
-                pubsub.publish('USER:CURRENT', {
-                    json: content.user,
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            case 'user-location':
-                if (content.world === Object(content.world)) {
-                    pubsub.publish('WORLD', {
-                        json: content.world,
-                        params: {
-                            worldId: content.world.id
-                        }
-                    });
-                }
-                pubsub.publish('USER', {
-                    json: {
-                        id: content.userId,
-                        location: content.location
-                    },
-                    params: {
-                        userId: content.userId
-                    }
-                });
-                break;
-
-            default:
-                break;
-        }
-    });
-
-    API.getAuth = function() {
-        return api
-            .legacyApi('auth', {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('AUTH', args);
-                return args;
-            });
-    };
-
-    API.connectWebSocket = function(token) {
-        if (API.webSocket === null) {
-            var socket = new WebSocket(
-                `wss://pipeline.vrchat.cloud/?auth=${token}`
-            );
-            socket.onclose = () => {
-                if (API.webSocket === socket) {
-                    API.webSocket = null;
-                }
-                try {
-                    socket.close();
-                } catch (err) {}
-            };
-            socket.onerror = socket.onclose;
-            socket.onmessage = ({data}) => {
-                try {
-                    var json = JSON.parse(data);
-                    json.content = JSON.parse(json.content);
-                    if ($app.debugWebSocket) {
-                        var displayName = '';
-                        if (api.userMap.has(json.content.userId)) {
-                            var user = api.userMap.get(json.content.userId);
-                            displayName = user.displayName;
-                        }
-                        console.log(
-                            'WebSocket',
-                            json.type,
-                            displayName,
-                            json.content
-                        );
-                    }
-                    pubsub.publish('PIPELINE', {
-                        json
-                    });
-                } catch (err) {
-                    console.error(err);
-                }
-            };
-            API.webSocket = socket;
-        }
-    };
-
-    API.closeWebSocket = function() {
-        var socket = API.webSocket;
-        if (socket === null) {
-            return;
-        }
-        API.webSocket = null;
-        try {
-            socket.close();
-        } catch (err) {}
-    };
 
     // API: Visit
-
-    API.getVisits = function() {
-        return api
-            .legacyApi('visits', {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('VISITS', args);
-                return args;
-            });
-    };
 
     // API
 
@@ -2948,7 +390,7 @@ speechSynthesis.getVoices();
     $app.methods.languageClass = function(language) {
         var style = {};
         var mapping = api.languageMappings[language];
-        if (typeof mapping !== 'undefined') {
+        if (mapping !== void 0) {
             style[mapping] = true;
         }
         return style;
@@ -2993,38 +435,36 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.updateLoop = function() {
+    $app.methods.updateLoop = async function() {
         try {
             if (api.isLoggedIn.value === true) {
                 if (--this.nextCurrentUserRefresh <= 0) {
-                    this.nextCurrentUserRefresh = 60; // 30secs
-                    api.getCurrentUser().catch((err1) => {
-                        throw err1;
-                    });
+                    this.nextCurrentUserRefresh = 30; // 30secs
+                    await api.getCurrentUser();
                 }
                 if (--this.nextFriendsRefresh <= 0) {
-                    this.nextFriendsRefresh = 7200; // 1hour
-                    API.refreshFriends();
-                    if (this.isGameRunning) {
-                        API.refreshPlayerModerations();
+                    this.nextFriendsRefresh = 3600; // 1hour
+                    await api.refreshFriends();
+                    if (this.isGameRunning === true) {
+                        await api.refreshPlayerModerations();
                     }
                 }
-                AppApi.CheckGameRunning().then(
-                    ([isGameRunning, isGameNoVR]) => {
-                        if (isGameRunning !== this.isGameRunning) {
-                            this.isGameRunning = isGameRunning;
-                            Discord.SetTimestamps(Date.now(), 0);
-                        }
-                        this.isGameNoVR = isGameNoVR;
-                        this.updateDiscord();
-                        this.updateOpenVR();
-                    }
-                );
+                var [
+                    isGameRunning,
+                    isGameNoVR
+                ] = await AppApi.CheckGameRunning();
+                if (isGameRunning !== this.isGameRunning) {
+                    this.isGameRunning = isGameRunning;
+                    Discord.SetTimestamps(Date.now(), 0);
+                }
+                this.isGameNoVR = isGameNoVR;
+                this.updateDiscord();
+                this.updateOpenVR();
             }
         } catch (err) {
             console.error(err);
         }
-        setTimeout(() => this.updateLoop(), 500);
+        setTimeout(() => this.updateLoop(), 1000);
     };
 
     $app.data.debug = false;
@@ -3743,8 +1183,8 @@ speechSynthesis.getVoices();
             var message = '';
             for (var k = 0; k < messageList.length; k++) {
                 if (
-                    typeof noty.details !== 'undefined' &&
-                    typeof noty.details[messageList[k]] !== 'undefined'
+                    noty.details !== void 0 &&
+                    noty.details[messageList[k]] !== void 0
                 ) {
                     message = noty.details[messageList[k]];
                 }
@@ -3769,66 +1209,54 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.notyGetImage = async function(noty) {
-        var imageURL = '';
-        var userId = '';
-        if (noty.userId) {
-            userId = noty.userId;
-        } else if (noty.senderUserId) {
-            userId = noty.senderUserId;
-        } else if (noty.sourceUserId) {
-            userId = noty.sourceUserId;
-        } else if (noty.data) {
-            for (var ref of api.userMap.values()) {
-                if (ref.displayName === noty.data) {
-                    userId = ref.id;
-                    break;
+        try {
+            var imageURL = '';
+            var userId = '';
+            if (noty.userId) {
+                userId = noty.userId;
+            } else if (noty.senderUserId) {
+                userId = noty.senderUserId;
+            } else if (noty.sourceUserId) {
+                userId = noty.sourceUserId;
+            } else if (noty.data) {
+                for (var ref of api.userMap.values()) {
+                    if (ref.displayName === noty.data) {
+                        userId = ref.id;
+                        break;
+                    }
                 }
             }
-        }
-        if (noty.details && noty.details.imageUrl) {
-            imageURL = noty.details.imageUrl;
-        } else if (userId) {
-            imageURL = await API.getCachedUser({
-                userId
-            })
-                .catch((err) => {
-                    console.error(err);
-                    return false;
-                })
-                .then((args) => {
-                    if (
-                        this.displayVRCPlusIconsAsAvatar &&
-                        args.json.userIcon
-                    ) {
-                        return args.json.userIcon;
-                    }
-                    return args.json.currentAvatarThumbnailImageUrl;
+            if (noty.details && noty.details.imageUrl) {
+                imageURL = noty.details.imageUrl;
+            } else if (userId) {
+                var args = await api.getCachedUser({
+                    userId
                 });
-        }
-        if (!imageURL) {
-            return false;
-        }
-        try {
-            await fetch(imageURL, {
+                if (this.displayVRCPlusIconsAsAvatar && args.json.userIcon) {
+                    imageURL = args.json.userIcon;
+                } else {
+                    imageURL = args.json.currentAvatarThumbnailImageUrl;
+                }
+            }
+            if (!imageURL) {
+                return false;
+            }
+            var response = await fetch(imageURL, {
                 method: 'GET',
                 redirect: 'follow',
                 headers: {
                     'User-Agent': appVersion
                 }
-            })
-                .then((response) => {
-                    return response.arrayBuffer();
-                })
-                .then((buffer) => {
-                    var binary = '';
-                    var bytes = new Uint8Array(buffer);
-                    var length = bytes.byteLength;
-                    for (var i = 0; i < length; i++) {
-                        binary += String.fromCharCode(bytes[i]);
-                    }
-                    var imageData = btoa(binary);
-                    AppApi.CacheImage(imageData);
-                });
+            });
+            var buffer = response.arrayBuffer();
+            var binary = '';
+            var bytes = new Uint8Array(buffer);
+            var length = bytes.byteLength;
+            for (var i = 0; i < length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            var imageData = btoa(binary);
+            AppApi.CacheImage(imageData);
             return true;
         } catch (err) {
             console.error(err);
@@ -4282,20 +1710,17 @@ speechSynthesis.getVoices();
             text = 'Private';
         } else if (L.worldId) {
             var ref = api.worldMap.get(L.worldId);
-            if (typeof ref === 'undefined') {
-                await api
-                    .getWorld({
-                        worldId: L.worldId
-                    })
-                    .then((args) => {
-                        if (L.location === location) {
-                            if (L.instanceId) {
-                                text = `${args.json.name} ${L.accessType}`;
-                            } else {
-                                text = args.json.name;
-                            }
-                        }
-                    });
+            if (ref === void 0) {
+                var {json} = await api.getWorld({
+                    worldId: L.worldId
+                });
+                if (json !== void 0 && L.location === location) {
+                    if (L.instanceId) {
+                        text = `${args.json.name} ${L.accessType}`;
+                    } else {
+                        text = args.json.name;
+                    }
+                }
             } else if (L.instanceId) {
                 text = `${ref.name} ${L.accessType}`;
             } else {
@@ -4342,19 +1767,17 @@ speechSynthesis.getVoices();
                 inputPlaceholder: 'Code',
                 inputPattern: /^[0-9]{6}$/,
                 inputErrorMessage: 'Invalid Code',
-                callback: (action, instance) => {
+                callback: async (action, instance) => {
                     if (action === 'confirm') {
-                        API.verifyTOTP({
-                            code: instance.inputValue
-                        })
-                            .catch((err) => {
-                                this.promptTOTP();
-                                throw err;
-                            })
-                            .then((args) => {
-                                api.getCurrentUser();
-                                return args;
+                        try {
+                            await api.verifyTOTP({
+                                code: instance.inputValue
                             });
+                            await api.getCurrentUser();
+                        } catch (err) {
+                            console.error(err);
+                            this.promptTOTP();
+                        }
                     } else if (action === 'cancel') {
                         this.promptOTP();
                     }
@@ -4374,19 +1797,17 @@ speechSynthesis.getVoices();
                 inputPlaceholder: 'Code',
                 inputPattern: /^[a-z0-9]{4}-[a-z0-9]{4}$/,
                 inputErrorMessage: 'Invalid Code',
-                callback: (action, instance) => {
+                callback: async (action, instance) => {
                     if (action === 'confirm') {
-                        API.verifyOTP({
-                            code: instance.inputValue
-                        })
-                            .catch((err) => {
-                                this.promptOTP();
-                                throw err;
-                            })
-                            .then((args) => {
-                                api.getCurrentUser();
-                                return args;
+                        try {
+                            await api.verifyOTP({
+                                code: instance.inputValue
                             });
+                            await api.getCurrentUser();
+                        } catch (err) {
+                            or(err);
+                            this.promptOTP();
+                        }
                     } else if (action === 'cancel') {
                         this.promptTOTP();
                     }
@@ -4409,8 +1830,8 @@ speechSynthesis.getVoices();
         };
         for (var userId of friends) {
             var ref = this.friends.get(userId);
-            var name = (typeof ref !== 'undefined' && ref.name) || '';
-            var memo = (typeof ref !== 'undefined' && ref.memo) || '';
+            var name = ref?.name ?? '';
+            var memo = ref?.memo ?? '';
             lines.push(`${_(userId)},${_(name)},${_(memo)}`);
         }
         this.exportFriendsListContent = lines.join('\n');
@@ -4421,9 +1842,9 @@ speechSynthesis.getVoices();
     $app.data.exportAvatarsListContent = '';
 
     $app.methods.showExportAvatarsListDialog = async function() {
-        for (var ref of API.cachedAvatars.values()) {
+        for (var ref of api.avatarMap.values()) {
             if (ref.authorId === api.currentUser.id) {
-                API.cachedAvatars.delete(ref.id);
+                api.avatarMap.delete(ref.id);
             }
         }
         var params = {
@@ -4435,7 +1856,7 @@ speechSynthesis.getVoices();
         var map = new Map();
         try {
             for (var offset = 0; ; offset += 100) {
-                var {json} = await API.getAvatars({
+                var {json} = await api.getAvatars({
                     n: 100,
                     offset,
                     ...params
@@ -4444,8 +1865,8 @@ speechSynthesis.getVoices();
                     break;
                 }
                 for (var apiAvatar of json) {
-                    var $ref = API.cachedAvatars.get(apiAvatar.id);
-                    if (typeof $ref !== void 0) {
+                    var $ref = api.avatarMap.get(apiAvatar.id);
+                    if ($ref !== void 0) {
                         map.set($ref.id, $ref);
                     }
                 }
@@ -4513,13 +1934,11 @@ speechSynthesis.getVoices();
         if (this.saveCredentials) {
             var credentialsToSave = {
                 user: currentUser,
-                loginParmas: this.saveCredentials
+                loginParams: this.saveCredentials
             };
             savedCredentialsArray[currentUser.username] = credentialsToSave;
             delete this.saveCredentials;
-        } else if (
-            typeof savedCredentialsArray[currentUser.username] !== 'undefined'
-        ) {
+        } else if (savedCredentialsArray[currentUser.username] !== void 0) {
             savedCredentialsArray[currentUser.username].user = currentUser;
         }
         this.loginForm.savedCredentials = savedCredentialsArray;
@@ -4529,27 +1948,20 @@ speechSynthesis.getVoices();
         configRepository.setString('lastUserLoggedIn', currentUser.username);
     };
 
-    $app.methods.relogin = function(loginParmas) {
+    $app.methods.relogin = async function(loginParams) {
         this.loginForm.loading = true;
-        return api
-            .getConfig()
-            .catch((err) => {
-                this.loginForm.loading = false;
-                throw err;
-            })
-            .then(() => {
-                API.login({
-                    username: loginParmas.username,
-                    password: loginParmas.password
-                })
-                    .catch((err2) => {
-                        api.logout();
-                        throw err2;
-                    })
-                    .finally(() => {
-                        this.loginForm.loading = false;
-                    });
+
+        try {
+            await api.getConfig();
+            await api.login({
+                username: loginParams.username,
+                password: loginParams.password
             });
+        } catch (err) {
+            console.error(err);
+        }
+
+        this.loginForm.loading = false;
     };
 
     $app.methods.deleteSavedLogin = function(username) {
@@ -4566,19 +1978,31 @@ speechSynthesis.getVoices();
         }).show();
     };
 
-    pubsub.subscribe('AUTOLOGIN', function() {
+    // API RESPONSE:
+    // if ((status === 401) && (data.error.message === '"Missing Credentials"') && ($app.isAutoLogin)) {
+    //     if (endpoint.substring(0, 10) === 'auth/user?') {
+    //         this.$emit('AUTOLOGIN');
+    //     }
+    //     throw new Error('401: Missing Credentials');
+    // }
+
+    pubsub.subscribe('AUTOLOGIN', async function() {
         var user =
             $app.loginForm.savedCredentials[$app.loginForm.lastUserLoggedIn];
-        if (typeof user !== 'undefined') {
-            $app.relogin({
-                username: user.loginParmas.username,
-                password: user.loginParmas.password
-            }).then(() => {
-                new Noty({
-                    type: 'success',
-                    text: 'Automatically logged in.'
-                }).show();
+        if (user === void 0) {
+            return;
+        }
+        try {
+            await $app.relogin({
+                username: user.loginParams.username,
+                password: user.loginParams.password
             });
+            new Noty({
+                type: 'success',
+                text: 'Automatically logged in.'
+            }).show();
+        } catch (err) {
+            console.error(err);
         }
     });
 
@@ -4609,61 +2033,58 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.login = function() {
-        this.$refs.loginForm.validate((valid) => {
+        this.$refs.loginForm.validate(async (valid) => {
             if (valid && !this.loginForm.loading) {
                 this.loginForm.loading = true;
-                api.getConfig()
-                    .catch((err) => {
-                        this.loginForm.loading = false;
-                        throw err;
-                    })
-                    .then((args) => {
-                        API.login({
+
+                try {
+                    await api.getConfig();
+
+                    if (this.loginForm.saveCredentials) {
+                        this.saveCredentials = {
                             username: this.loginForm.username,
-                            password: this.loginForm.password,
-                            saveCredentials: this.loginForm.saveCredentials
-                        }).finally(() => {
-                            this.loginForm.username = '';
-                            this.loginForm.password = '';
-                            this.loginForm.loading = false;
-                        });
-                        return args;
+                            password: this.loginForm.password
+                        };
+                    } else {
+                        this.saveCredentials = null;
+                    }
+
+                    await api.login({
+                        username: this.loginForm.username,
+                        password: this.loginForm.password
                     });
+                } catch (err) {
+                    console.error(err);
+                }
+
+                this.loginForm.password = '';
+                this.loginForm.loading = false;
             }
         });
     };
 
-    $app.methods.loginWithSteam = function() {
+    $app.methods.loginWithSteam = async function() {
         if (!this.loginForm.loading) {
             this.loginForm.loading = true;
-            AppApi.LoginWithSteam()
-                .catch((err) => {
-                    this.loginForm.loading = false;
-                    throw err;
-                })
-                .then((steamTicket) => {
-                    if (steamTicket) {
-                        api.getConfig()
-                            .catch((err) => {
-                                this.loginForm.loading = false;
-                                throw err;
-                            })
-                            .then((args) => {
-                                API.loginWithSteam({
-                                    steamTicket
-                                }).finally(() => {
-                                    this.loginForm.loading = false;
-                                });
-                                return args;
-                            });
-                    } else {
-                        this.loginForm.loading = false;
-                        this.$message({
-                            message: 'It only works when VRChat is running.',
-                            type: 'error'
-                        });
-                    }
-                });
+
+            try {
+                var steamTicket = await AppApi.LoginWithSteam();
+                if (steamTicket) {
+                    await api.getConfig();
+                    await api.loginWithSteam({
+                        steamTicket
+                    });
+                } else {
+                    this.$message({
+                        message: 'It only works when VRChat is running.',
+                        type: 'error'
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+            }
+
+            this.loginForm.loading = false;
         }
     };
 
@@ -4730,40 +2151,6 @@ speechSynthesis.getVoices();
     $app.watch.orderFriendsGroup2 = saveOrderFriendGroup;
     $app.watch.orderFriendsGroup3 = saveOrderFriendGroup;
 
-    $app.methods.fetchActiveFriend = function(userId) {
-        this.pendingActiveFriends.add(userId);
-        // FIXME: handle error
-        return API.getUser({
-            userId
-        }).then((args) => {
-            this.pendingActiveFriends.delete(userId);
-            return args;
-        });
-    };
-
-    pubsub.subscribe('USER:CURRENT', function(args) {
-        $app.checkActiveFriends(args.json);
-    });
-
-    $app.methods.checkActiveFriends = function(ref) {
-        if (Array.isArray(ref.activeFriends) === false || !this.appInit) {
-            return;
-        }
-        for (var userId of ref.activeFriends) {
-            if (this.pendingActiveFriends.has(userId)) {
-                continue;
-            }
-            var user = api.userMap.get(userId);
-            if (typeof user !== 'undefined' && user.status !== 'offline') {
-                continue;
-            }
-            if (this.pendingActiveFriends.size >= 5) {
-                break;
-            }
-            this.fetchActiveFriend(userId);
-        }
-    };
-
     pubsub.subscribe('LOGIN', function() {
         $app.friends.clear();
         $app.pendingActiveFriends.clear();
@@ -4819,6 +2206,11 @@ speechSynthesis.getVoices();
         $app.updateFriend(args.ref.favoriteId);
     });
 
+    $app.methods.refreshFriendList = function() {
+        this.nextCurrentUserRefresh = 0;
+        this.nextFriendsRefresh = 0;
+    };
+
     $app.methods.refreshFriends = function(ref, origin) {
         var map = new Map();
         for (var id of ref.friends) {
@@ -4842,7 +2234,7 @@ speechSynthesis.getVoices();
         }
         for (var id of this.friends.keys()) {
             if (map.has(id) === false) {
-                API.deleteFriend(id);
+                api.deleteFriend(id);
             }
         }
     };
@@ -4859,12 +2251,12 @@ speechSynthesis.getVoices();
             isVIP,
             ref,
             name: '',
-            no: ++API.friendsNo,
+            no: ++this.friendsNo,
             memo: this.loadMemo(id)
         };
-        if (typeof ref === 'undefined') {
+        if (ref === void 0) {
             ref = this.friendLog[id];
-            if (typeof ref !== 'undefined' && ref.displayName) {
+            if (ref !== void 0 && ref.displayName) {
                 ctx.name = ref.displayName;
             }
         } else {
@@ -4894,7 +2286,7 @@ speechSynthesis.getVoices();
 
     $app.methods.deleteFriend = function(id) {
         var ctx = this.friends.get(id);
-        if (typeof ctx === 'undefined') {
+        if (ctx === void 0) {
             return;
         }
         this.friends.delete(id);
@@ -4937,7 +2329,7 @@ speechSynthesis.getVoices();
                 // 서버에서 오는 순서라고 보면 될 듯.
                 if (ctx.state === 'online') {
                     if (this.appInit) {
-                        API.getUser({
+                        api.getUser({
                             userId: id
                         });
                     }
@@ -4974,7 +2366,7 @@ speechSynthesis.getVoices();
                     }
                 }
             }
-            if (typeof ref !== 'undefined' && ctx.name !== ref.displayName) {
+            if (ref !== void 0 && ctx.name !== ref.displayName) {
                 ctx.name = ref.displayName;
                 if (ctx.state === 'online') {
                     if (ctx.isVIP) {
@@ -4992,12 +2384,12 @@ speechSynthesis.getVoices();
             if (
                 origin &&
                 ctx.state !== 'online' &&
-                typeof ref !== 'undefined' &&
+                ref !== void 0 &&
                 ref.location !== '' &&
                 ref.location !== 'offline' &&
                 ref.location !== 'private'
             ) {
-                API.getUser({
+                api.getUser({
                     userId: id
                 }).catch((err) => {
                     this.updateFriendInProgress.remove(id);
@@ -5031,27 +2423,23 @@ speechSynthesis.getVoices();
             }
             var location = '';
             var $location_at = '';
-            if (
-                typeof ref !== 'undefined' &&
-                typeof ref.location !== 'undefined'
-            ) {
+            if (ref !== void 0 && ref.location !== void 0) {
                 var {location, $location_at} = ref;
             }
-            var args = await API.getUser({
-                userId: id
-            }).catch((err) => {
-                this.updateFriendInProgress.remove(id);
-            });
-            if (
-                typeof args !== 'undefined' &&
-                typeof args.ref !== 'undefined'
-            ) {
+            var args = await api
+                .getUser({
+                    userId: id
+                })
+                .catch((err) => {
+                    this.updateFriendInProgress.remove(id);
+                });
+            if (args !== void 0 && args.ref !== void 0) {
                 newState = args.ref.state;
                 ctx.ref = args.ref;
             }
             if (ctx.state !== newState) {
                 if (
-                    typeof ctx.ref.$offline_for !== 'undefined' &&
+                    ctx.ref.$offline_for !== void 0 &&
                     ctx.ref.$offline_for === '' &&
                     (newState === 'offline' || newState === 'active') &&
                     ctx.state === 'online'
@@ -5141,7 +2529,7 @@ speechSynthesis.getVoices();
     $app.methods.updateFriendGPS = function(userId) {
         var ctx = this.friends.get(userId);
         if (
-            typeof ctx.ref !== 'undefined' &&
+            ctx.ref !== void 0 &&
             ctx.ref.location !== 'private' &&
             ctx.state === 'online'
         ) {
@@ -5244,7 +2632,7 @@ speechSynthesis.getVoices();
 
     $app.methods.userStatusClass = function(user) {
         var style = {};
-        if (typeof user !== 'undefined') {
+        if (user !== void 0) {
             var id = '';
             if (user.id) {
                 id = user.id;
@@ -5300,7 +2688,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.deleteFriend({
+                    api.deleteFriend({
                         userId: id
                     });
                 }
@@ -5318,7 +2706,7 @@ speechSynthesis.getVoices();
         if (query) {
             var QUERY = query.toUpperCase();
             for (var ctx of this.friends.values()) {
-                if (typeof ctx.ref === 'undefined') {
+                if (ctx.ref === void 0) {
                     continue;
                 }
                 var NAME = ctx.name.toUpperCase();
@@ -5376,7 +2764,7 @@ speechSynthesis.getVoices();
     $app.methods.quickSearchChange = function(value) {
         if (value) {
             if (value.startsWith('search:')) {
-                API.friendsListSearch = value.substr(7);
+                this.friendsListSearch = value.substr(7);
                 this.$refs.menu.activeIndex = 'friendsList';
             } else {
                 this.showUserDialog(value);
@@ -5782,10 +3170,10 @@ speechSynthesis.getVoices();
 
     $app.methods.updateDiscord = function() {
         var ref = api.userMap.get(api.currentUser.id);
-        if (typeof ref !== 'undefined') {
+        if (ref !== void 0) {
             var myLocation = this.lastLocation.location;
             if (ref.location !== myLocation) {
-                API.applyUser({
+                api.applyUser({
                     id: ref.id,
                     location: myLocation
                 });
@@ -5804,12 +3192,12 @@ speechSynthesis.getVoices();
                 if (ref) {
                     L.worldName = ref.name;
                 } else {
-                    api.getWorld({
+                    var {json} = api.getWorld({
                         worldId: L.worldId
-                    }).then((args) => {
-                        L.worldName = args.ref.name;
-                        return args;
                     });
+                    if (json !== void 0) {
+                        L.worldName = json.name;
+                    }
                 }
             }
         }
@@ -5905,21 +3293,20 @@ speechSynthesis.getVoices();
             }
         }
         this.isSearchUserLoading = true;
-        await API.getUsers(params)
-            .finally(() => {
-                this.isSearchUserLoading = false;
-            })
-            .then((args) => {
-                var map = new Map();
-                for (var json of args.json) {
-                    var ref = api.userMap.get(json.id);
-                    if (typeof ref !== 'undefined') {
-                        map.set(ref.id, ref);
-                    }
+        try {
+            var {json} = await api.getUsers(params);
+            var map = new Map();
+            for (var apiUser of json) {
+                var ref = api.userMap.get(apiUser.id);
+                if (ref !== void 0) {
+                    map.set(ref.id, ref);
                 }
-                this.searchUserResults = Array.from(map.values());
-                return args;
-            });
+            }
+            this.searchUserResults = [...map.values()];
+        } catch (err) {
+            console.error(err);
+        }
+        this.isSearchUserLoading = false;
     };
 
     $app.methods.searchWorld = function(ref) {
@@ -5983,7 +3370,7 @@ speechSynthesis.getVoices();
         this.moreSearchWorld();
     };
 
-    $app.methods.moreSearchWorld = function(go) {
+    $app.methods.moreSearchWorld = async function(go) {
         var params = this.searchWorldParams;
         if (go) {
             params.offset += params.n * go;
@@ -5991,22 +3378,21 @@ speechSynthesis.getVoices();
                 params.offset = 0;
             }
         }
-        this.isSearchUserLoading = true;
-        api.getWorlds(params, this.searchWorldOption)
-            .finally(() => {
-                this.isSearchUserLoading = false;
-            })
-            .then((args) => {
-                var map = new Map();
-                for (var json of args.json) {
-                    var ref = api.worldMap.get(json.id);
-                    if (typeof ref !== 'undefined') {
-                        map.set(ref.id, ref);
-                    }
+        this.isSearchWorldLoading = true;
+        try {
+            var {json} = await api.getWorlds(params, this.searchWorldOption);
+            var map = new Map();
+            for (var apiWorld of json) {
+                var ref = api.worldMap.get(apiWorld.id);
+                if (ref !== void 0) {
+                    map.set(ref.id, ref);
                 }
-                this.searchWorldResults = Array.from(map.values());
-                return args;
-            });
+            }
+            this.searchWorldResults = [...map.values()];
+        } catch (err) {
+            console.error(err);
+        }
+        this.isSearchWorldLoading = false;
     };
 
     $app.methods.searchAvatar = function(option) {
@@ -6036,7 +3422,7 @@ speechSynthesis.getVoices();
         this.moreSearchAvatar();
     };
 
-    $app.methods.moreSearchAvatar = function(go) {
+    $app.methods.moreSearchAvatar = async function(go) {
         var params = this.searchAvatarParams;
         if (go) {
             params.offset += params.n * go;
@@ -6045,21 +3431,20 @@ speechSynthesis.getVoices();
             }
         }
         this.isSearchAvatarLoading = true;
-        API.getAvatars(params)
-            .finally(() => {
-                this.isSearchAvatarLoading = false;
-            })
-            .then((args) => {
-                var map = new Map();
-                for (var json of args.json) {
-                    var ref = API.cachedAvatars.get(json.id);
-                    if (typeof ref !== 'undefined') {
-                        map.set(ref.id, ref);
-                    }
+        try {
+            var {json} = await api.getAvatars(params);
+            var map = new Map();
+            for (var apiAvatar of json) {
+                var ref = api.avatarMap.get(apiAvatar.id);
+                if (ref !== void 0) {
+                    map.set(ref.id, ref);
                 }
-                this.searchAvatarResults = Array.from(map.values());
-                return args;
-            });
+            }
+            this.searchAvatarResults = Array.from(map.values());
+        } catch (err) {
+            console.error(err);
+        }
+        this.isSearchAvatarLoading = false;
     };
 
     // App: Favorite
@@ -6105,9 +3490,9 @@ speechSynthesis.getVoices();
     $app.methods.applyFavorite = function(type, objectId) {
         var favorite = api.favoriteMapByObjectId.get(objectId);
         var ctx = this.favoriteObjects.get(objectId);
-        if (typeof favorite !== 'undefined') {
+        if (favorite !== void 0) {
             var isTypeChanged = false;
-            if (typeof ctx === 'undefined') {
+            if (ctx === void 0) {
                 ctx = {
                     id: objectId,
                     type,
@@ -6118,9 +3503,9 @@ speechSynthesis.getVoices();
                 this.favoriteObjects.set(objectId, ctx);
                 if (type === 'friend') {
                     var ref = api.userMap.get(objectId);
-                    if (typeof ref === 'undefined') {
+                    if (ref === void 0) {
                         ref = this.friendLog[objectId];
-                        if (typeof ref !== 'undefined' && ref.displayName) {
+                        if (ref !== void 0 && ref.displayName) {
                             ctx.name = ref.displayName;
                         }
                     } else {
@@ -6129,13 +3514,13 @@ speechSynthesis.getVoices();
                     }
                 } else if (type === 'world') {
                     var ref = api.worldMap.get(objectId);
-                    if (typeof ref !== 'undefined') {
+                    if (ref !== void 0) {
                         ctx.ref = ref;
                         ctx.name = ref.name;
                     }
                 } else if (type === 'avatar') {
-                    var ref = API.cachedAvatars.get(objectId);
-                    if (typeof ref !== 'undefined') {
+                    var ref = api.avatarMap.get(objectId);
+                    if (ref !== void 0) {
                         ctx.ref = ref;
                         ctx.name = ref.name;
                     }
@@ -6155,7 +3540,7 @@ speechSynthesis.getVoices();
                 }
                 if (type === 'friend') {
                     var ref = api.userMap.get(objectId);
-                    if (typeof ref !== 'undefined') {
+                    if (ref !== void 0) {
                         if (ctx.ref !== ref) {
                             ctx.ref = ref;
                         }
@@ -6166,7 +3551,7 @@ speechSynthesis.getVoices();
                     }
                 } else if (type === 'world') {
                     var ref = api.worldMap.get(objectId);
-                    if (typeof ref !== 'undefined') {
+                    if (ref !== void 0) {
                         if (ctx.ref !== ref) {
                             ctx.ref = ref;
                         }
@@ -6176,8 +3561,8 @@ speechSynthesis.getVoices();
                         }
                     }
                 } else if (type === 'avatar') {
-                    var ref = API.cachedAvatars.get(objectId);
-                    if (typeof ref !== 'undefined') {
+                    var ref = api.avatarMap.get(objectId);
+                    if (ref !== void 0) {
                         if (ctx.ref !== ref) {
                             ctx.ref = ref;
                         }
@@ -6200,7 +3585,7 @@ speechSynthesis.getVoices();
                     this.sortFavoriteAvatars = true;
                 }
             }
-        } else if (typeof ctx !== 'undefined') {
+        } else if (ctx !== void 0) {
             this.favoriteObjects.delete(objectId);
             if (type === 'friend') {
                 removeFromArray(this.favoriteFriends_, ctx);
@@ -6220,7 +3605,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.deleteFavorite({
+                    api.deleteFavorite({
                         objectId
                     });
                 }
@@ -6237,19 +3622,21 @@ speechSynthesis.getVoices();
             inputValue: ctx.displayName,
             inputPattern: /\S+/,
             inputErrorMessage: 'Name is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (action === 'confirm') {
-                    API.saveFavoriteGroup({
-                        type: ctx.type,
-                        group: ctx.name,
-                        displayName: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.saveFavoriteGroup({
+                            type: ctx.type,
+                            group: ctx.name,
+                            displayName: instance.inputValue
+                        });
                         this.$message({
                             message: 'Group renamed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -6263,7 +3650,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.clearFavoriteGroup({
+                    api.clearFavoriteGroup({
                         type: ctx.type,
                         group: ctx.name
                     });
@@ -6351,7 +3738,7 @@ speechSynthesis.getVoices();
 
     pubsub.subscribe('FRIEND:REQUEST', function(args) {
         var ref = api.userMap.get(args.params.userId);
-        if (typeof ref === 'undefined') {
+        if (ref === void 0) {
             return;
         }
         $app.friendLogTable.data.push({
@@ -6365,7 +3752,7 @@ speechSynthesis.getVoices();
 
     pubsub.subscribe('FRIEND:REQUEST:CANCEL', function(args) {
         var ref = api.userMap.get(args.params.userId);
-        if (typeof ref === 'undefined') {
+        if (ref === void 0) {
             return;
         }
         $app.friendLogTable.data.push({
@@ -6415,7 +3802,7 @@ speechSynthesis.getVoices();
                     id
                 };
                 var user = api.userMap.get(id);
-                if (typeof user !== 'undefined') {
+                if (user !== void 0) {
                     ctx.displayName = user.displayName;
                     ctx.trustLevel = user.$trustLevel;
                 }
@@ -6428,7 +3815,7 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.addFriendship = function(id) {
-        if (typeof this.friendLog[id] !== 'undefined') {
+        if (this.friendLog[id] !== void 0) {
             return;
         }
         var ctx = {
@@ -6438,7 +3825,7 @@ speechSynthesis.getVoices();
         };
         Vue.set(this.friendLog, id, ctx);
         var ref = api.userMap.get(id);
-        if (typeof ref !== 'undefined') {
+        if (ref !== void 0) {
             ctx.displayName = ref.displayName;
             ctx.trustLevel = ref.$trustLevel;
             this.friendLogTable.data.push({
@@ -6454,7 +3841,7 @@ speechSynthesis.getVoices();
 
     $app.methods.deleteFriendship = function(id) {
         var ctx = this.friendLog[id];
-        if (typeof ctx === 'undefined') {
+        if (ctx === void 0) {
             return;
         }
         Vue.delete(this.friendLog, id);
@@ -6476,14 +3863,14 @@ speechSynthesis.getVoices();
         }
         for (var id in this.friendLog) {
             if (set.has(id) === false) {
-                API.deleteFriendship(id);
+                api.deleteFriendship(id);
             }
         }
     };
 
     $app.methods.updateFriendship = function(ref) {
         var ctx = this.friendLog[ref.id];
-        if (typeof ctx === 'undefined') {
+        if (ctx === void 0) {
             return;
         }
         if (ctx.displayName !== ref.displayName) {
@@ -6617,7 +4004,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.deletePlayerModeration({
+                    api.deletePlayerModeration({
                         moderated: row.targetUserId,
                         type: row.type
                     });
@@ -6663,6 +4050,10 @@ speechSynthesis.getVoices();
     });
 
     $app.data.unseenNotifications = [];
+
+    pubsub.subscribe('NOTIFICATION:REFRESH', function(args) {
+        $app.unseenNotifications = [];
+    });
 
     pubsub.subscribe('NOTIFICATION', function(args) {
         var {ref} = args;
@@ -6716,7 +4107,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.acceptNotification({
+                    api.acceptNotification({
                         notificationId: row.id
                     });
                 }
@@ -6732,12 +4123,24 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.hideNotification({
+                    api.hideNotification({
                         notificationId: row.id
                     });
                 }
             }
         });
+    };
+
+    $app.methods.parseInviteLocation = function(ref) {
+        try {
+            var L = parseLocation(ref.details.worldId);
+            if (L.worldId && L.instanceId) {
+                return `${ref.details.worldName} #${L.name} ${L.accessType}`;
+            }
+            return ref.message || ref.details.worldId || ref.details.worldName;
+        } catch (err) {
+            return '';
+        }
     };
 
     // App: Profile + Settings
@@ -7383,7 +4786,7 @@ speechSynthesis.getVoices();
     });
 
     pubsub.subscribe('VISITS', function(args) {
-        $app.visits = args.json;
+        $app.visits = args;
     });
 
     $app.methods.logout = function() {
@@ -7404,17 +4807,19 @@ speechSynthesis.getVoices();
             confirmButtonText: 'Confirm',
             cancelButtonText: 'Cancel',
             type: 'info',
-            callback: (action) => {
+            callback: async (action) => {
                 if (action === 'confirm') {
-                    API.saveCurrentUser({
-                        homeLocation: ''
-                    }).then((args) => {
+                    try {
+                        await api.saveCurrentUser({
+                            homeLocation: ''
+                        });
                         this.$message({
                             message: 'Home world has been reset',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7506,17 +4911,19 @@ speechSynthesis.getVoices();
             cancelButtonText: 'Cancel',
             inputPattern: /\S+/,
             inputErrorMessage: 'Avatar ID is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (action === 'confirm' && instance.inputValue) {
-                    API.selectAvatar({
-                        avatarId: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.selectAvatar({
+                            avatarId: instance.inputValue
+                        });
                         this.$message({
                             message: 'Avatar changed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7555,21 +4962,23 @@ speechSynthesis.getVoices();
             cancelButtonText: 'Cancel',
             inputValue: avatar.ref.name,
             inputErrorMessage: 'Valid name is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (
                     action === 'confirm' &&
                     instance.inputValue !== avatar.ref.name
                 ) {
-                    API.saveAvatar({
-                        id: avatar.id,
-                        name: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.saveAvatar({
+                            id: avatar.id,
+                            name: instance.inputValue
+                        });
                         this.$message({
                             message: 'Avatar renamed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7582,21 +4991,23 @@ speechSynthesis.getVoices();
             cancelButtonText: 'Cancel',
             inputValue: avatar.ref.description,
             inputErrorMessage: 'Valid description is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (
                     action === 'confirm' &&
                     instance.inputValue !== avatar.ref.description
                 ) {
-                    API.saveAvatar({
-                        id: avatar.id,
-                        description: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.saveAvatar({
+                            id: avatar.id,
+                            description: instance.inputValue
+                        });
                         this.$message({
                             message: 'Avatar description changed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7609,21 +5020,23 @@ speechSynthesis.getVoices();
             cancelButtonText: 'Cancel',
             inputValue: world.ref.name,
             inputErrorMessage: 'Valid name is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (
                     action === 'confirm' &&
                     instance.inputValue !== world.ref.name
                 ) {
-                    API.saveWorld({
-                        id: world.id,
-                        name: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.saveWorld({
+                            id: world.id,
+                            name: instance.inputValue
+                        });
                         this.$message({
                             message: 'World renamed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7636,21 +5049,23 @@ speechSynthesis.getVoices();
             cancelButtonText: 'Cancel',
             inputValue: world.ref.description,
             inputErrorMessage: 'Valid description is required',
-            callback: (action, instance) => {
+            callback: async (action, instance) => {
                 if (
                     action === 'confirm' &&
                     instance.inputValue !== world.ref.description
                 ) {
-                    API.saveWorld({
-                        id: world.id,
-                        description: instance.inputValue
-                    }).then((args) => {
+                    try {
+                        await api.saveWorld({
+                            id: world.id,
+                            description: instance.inputValue
+                        });
                         this.$message({
                             message: 'World description changed',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         });
@@ -7665,7 +5080,7 @@ speechSynthesis.getVoices();
             inputErrorMessage: 'Avatar ID is required',
             callback: (action, instance) => {
                 if (action === 'confirm' && instance.inputValue) {
-                    if (API.cachedAvatars.has(instance.inputValue)) {
+                    if (api.avatarMap.has(instance.inputValue)) {
                         this.showAvatarDialog(instance.inputValue);
                         return;
                     }
@@ -7819,7 +5234,7 @@ speechSynthesis.getVoices();
         // 따라서 $isDeleted라면 ref가 undefined가 됨
         if (
             D.visible === false ||
-            typeof ref === 'undefined' ||
+            ref === void 0 ||
             ref.type !== 'friendRequest' ||
             ref.senderUserId !== D.id
         ) {
@@ -7909,7 +5324,7 @@ speechSynthesis.getVoices();
         D.isFavorite = false;
     });
 
-    $app.methods.showUserDialog = function(userId) {
+    $app.methods.showUserDialog = async function(userId) {
         this.$nextTick(() => adjustDialogZ(this.$refs.userDialog.$el));
         var D = this.userDialog;
         D.currentAvatarThumbnailImageUrl = '';
@@ -7922,102 +5337,99 @@ speechSynthesis.getVoices();
         D.avatars = [];
         D.worlds = [];
         D.instance = {};
-        API.getCachedUser({
-            userId
-        })
-            .catch((err) => {
+        try {
+            var args = await api.getCachedUser({
+                userId
+            });
+            if (args.ref.id === D.id) {
                 D.loading = false;
-                D.visible = false;
-                throw err;
-            })
-            .then((args) => {
-                if (args.ref.id === D.id) {
-                    D.loading = false;
-                    D.ref = args.ref;
-                    D.friend = this.friends.get(D.id);
-                    D.isFriend = Boolean(D.friend);
-                    D.incomingRequest = false;
-                    D.outgoingRequest = false;
-                    D.isBlock = false;
-                    D.isMute = false;
-                    D.isHideAvatar = false;
-                    for (var ref of api.playerModerationMap.values()) {
-                        if (
-                            ref.$isDeleted === false &&
-                            ref.targetUserId === D.id &&
-                            ref.sourceUserId === api.currentUser.id
-                        ) {
-                            if (ref.type === 'block') {
-                                D.isBlock = true;
-                            } else if (ref.type === 'mute') {
-                                D.isMute = true;
-                            } else if (ref.type === 'hideAvatar') {
-                                D.isHideAvatar = true;
-                            }
-                        }
-                    }
-                    D.isFavorite = api.favoriteMapByObjectId.has(D.id);
-                    this.applyUserDialogLocation();
-                    if (this.$refs.userDialogTabs.currentName === '0') {
-                        this.userDialogLastActiveTab = 'Info';
-                    } else if (this.$refs.userDialogTabs.currentName === '1') {
-                        this.userDialogLastActiveTab = 'Worlds';
-                        this.setUserDialogWorlds(userId);
-                        if (this.userDialogLastWorld !== userId) {
-                            this.userDialogLastWorld = userId;
-                            this.refreshUserDialogWorlds();
-                        }
-                    } else if (this.$refs.userDialogTabs.currentName === '2') {
-                        this.userDialogLastActiveTab = 'Favorite Worlds';
-                        if (this.userDialogLastFavoriteWorld !== userId) {
-                            this.userDialogLastFavoriteWorld = userId;
-                            this.getUserFavoriteWorlds(userId);
-                        }
-                    } else if (this.$refs.userDialogTabs.currentName === '3') {
-                        this.userDialogLastActiveTab = 'Avatars';
-                        this.setUserDialogAvatars(userId);
-                        if (this.userDialogLastAvatar !== userId) {
-                            this.userDialogLastAvatar = userId;
-                            if (
-                                userId === api.currentUser.id &&
-                                D.avatars.length === 0
-                            ) {
-                                this.refreshUserDialogAvatars();
-                            }
-                        }
-                    } else if (this.$refs.userDialogTabs.currentName === '4') {
-                        this.userDialogLastActiveTab = 'JSON';
-                        this.refreshUserDialogTreeData();
-                    }
-                    API.getFriendStatus({
-                        userId: D.id
-                    });
-                    if (args.cache) {
-                        API.getUser(args.params);
-                    }
-                    this.getAvatarName(args);
-                    var L = parseLocation(D.ref.location);
+                D.ref = args.ref;
+                D.friend = this.friends.get(D.id);
+                D.isFriend = Boolean(D.friend);
+                D.incomingRequest = false;
+                D.outgoingRequest = false;
+                D.isBlock = false;
+                D.isMute = false;
+                D.isHideAvatar = false;
+                for (var ref of api.playerModerationMap.values()) {
                     if (
-                        L.worldId &&
-                        this.lastLocation.location !== L.location
+                        ref.$isDeleted === false &&
+                        ref.targetUserId === D.id &&
+                        ref.sourceUserId === api.currentUser.id
                     ) {
-                        API.getInstance({
-                            worldId: L.worldId,
-                            instanceId: L.instanceId
-                        });
+                        if (ref.type === 'block') {
+                            D.isBlock = true;
+                        } else if (ref.type === 'mute') {
+                            D.isMute = true;
+                        } else if (ref.type === 'hideAvatar') {
+                            D.isHideAvatar = true;
+                        }
                     }
                 }
-                return args;
-            });
+                D.isFavorite = api.favoriteMapByObjectId.has(D.id);
+                this.applyUserDialogLocation();
+                if (this.$refs.userDialogTabs.currentName === '0') {
+                    this.userDialogLastActiveTab = 'Info';
+                } else if (this.$refs.userDialogTabs.currentName === '1') {
+                    this.userDialogLastActiveTab = 'Worlds';
+                    this.setUserDialogWorlds(userId);
+                    if (this.userDialogLastWorld !== userId) {
+                        this.userDialogLastWorld = userId;
+                        this.refreshUserDialogWorlds();
+                    }
+                } else if (this.$refs.userDialogTabs.currentName === '2') {
+                    this.userDialogLastActiveTab = 'Favorite Worlds';
+                    if (this.userDialogLastFavoriteWorld !== userId) {
+                        this.userDialogLastFavoriteWorld = userId;
+                        this.getUserFavoriteWorlds(userId);
+                    }
+                } else if (this.$refs.userDialogTabs.currentName === '3') {
+                    this.userDialogLastActiveTab = 'Avatars';
+                    this.setUserDialogAvatars(userId);
+                    if (this.userDialogLastAvatar !== userId) {
+                        this.userDialogLastAvatar = userId;
+                        if (
+                            userId === api.currentUser.id &&
+                            D.avatars.length === 0
+                        ) {
+                            this.refreshUserDialogAvatars();
+                        }
+                    }
+                } else if (this.$refs.userDialogTabs.currentName === '4') {
+                    this.userDialogLastActiveTab = 'JSON';
+                    this.refreshUserDialogTreeData();
+                }
+                api.getFriendStatus({
+                    userId: D.id
+                });
+                if (args.cache) {
+                    api.getUser(args.params);
+                }
+                this.getAvatarName();
+                var L = parseLocation(D.ref.location);
+                if (L.worldId && this.lastLocation.location !== L.location) {
+                    api.getInstance({
+                        worldId: L.worldId,
+                        instanceId: L.instanceId
+                    });
+                }
+            }
+        } catch (err) {
+            console.log(err);
+            D.loading = false;
+            D.visible = false;
+        }
     };
 
     $app.methods.applyUserDialogLocation = function() {
         var D = this.userDialog;
+
         var L = parseLocation(D.ref.location);
         D.$location = L;
+
         if (L.ownerId) {
             var ref = api.userMap.get(L.ownerId);
-            if (typeof ref === 'undefined') {
+            if (ref === void 0) {
                 api.getUser({
                     userId: L.ownerId
                 }).then((args) => {
@@ -8028,6 +5440,7 @@ speechSynthesis.getVoices();
                 L.user = ref;
             }
         }
+
         var users = [];
         var playersInInstance = this.lastLocation.playerList;
         if (
@@ -8035,7 +5448,7 @@ speechSynthesis.getVoices();
             playersInInstance.length > 0
         ) {
             var ref = api.userMap.get(api.currentUser.id);
-            if (typeof ref === 'undefined') {
+            if (ref === void 0) {
                 ref = api.currentUser;
             }
             if (playersInInstance.includes(ref.displayName)) {
@@ -8061,29 +5474,24 @@ speechSynthesis.getVoices();
                     }
                 }
             }
-        } else {
-            if (L.isOffline === false) {
-                for (var {ref} of this.friends.values()) {
-                    if (
-                        typeof ref !== 'undefined' &&
-                        ref.location === L.location
-                    ) {
-                        if (
-                            ref.state === 'active' &&
-                            ref.location === 'private'
-                        ) {
-                            continue;
-                        }
-                        users.push(ref);
+        } else if (L.isOffline === false) {
+            for (var {ref} of this.friends.values()) {
+                if (ref !== void 0 && ref.location === L.location) {
+                    if (ref.state === 'active' && ref.location === 'private') {
+                        continue;
                     }
+                    users.push(ref);
                 }
             }
         }
+
         users.sort(compareByDisplayName);
+
         D.users = users;
         if (!L.worldId) {
             return;
         }
+
         if (this.lastLocation.location === L.location) {
             D.instance = {
                 id: L.location,
@@ -8114,7 +5522,7 @@ speechSynthesis.getVoices();
 
     $app.methods.setUserDialogAvatars = function(userId) {
         var avatars = [];
-        for (var ref of API.cachedAvatars.values()) {
+        for (var ref of api.avatarMap.values()) {
             if (ref.authorId === userId) {
                 avatars.push(ref);
             }
@@ -8198,14 +5606,14 @@ speechSynthesis.getVoices();
             user: 'me'
         };
         try {
-            for (var ref of API.cachedAvatars.values()) {
+            for (var ref of api.avatarMap.values()) {
                 if (ref.authorId === D.id) {
-                    API.cachedAvatars.delete(ref.id);
+                    api.avatarMap.delete(ref.id);
                 }
             }
             var map = new Map();
             for (var offset = 0; ; offset += 100) {
-                var {json} = await API.getAvatars({
+                var {json} = await api.getAvatars({
                     n: 100,
                     offset,
                     ...params
@@ -8214,7 +5622,7 @@ speechSynthesis.getVoices();
                     break;
                 }
                 for (var apiAvatar of json) {
-                    var $ref = API.cachedAvatars.get(apiAvatar.id);
+                    var $ref = api.avatarMap.get(apiAvatar.id);
                     if ($ref !== void 0) {
                         map.set($ref.id, $ref);
                     }
@@ -8244,82 +5652,82 @@ speechSynthesis.getVoices();
     var performUserDialogCommand = (command, userId) => {
         switch (command) {
             case 'Delete Favorite':
-                API.deleteFavorite({
+                api.deleteFavorite({
                     objectId: userId
                 });
                 break;
             case 'Accept Friend Request':
-                var key = API.getFriendRequest(userId);
+                var key = api.getFriendRequest(userId);
                 if (key === '') {
-                    API.sendFriendRequest({
+                    api.sendFriendRequest({
                         userId
                     });
                 } else {
-                    API.acceptNotification({
+                    api.acceptNotification({
                         notificationId: key
                     });
                 }
                 break;
             case 'Decline Friend Request':
-                var key = API.getFriendRequest(userId);
+                var key = api.getFriendRequest(userId);
                 if (key === '') {
-                    API.cancelFriendRequest({
+                    api.cancelFriendRequest({
                         userId
                     });
                 } else {
-                    API.hideNotification({
+                    api.hideNotification({
                         notificationId: key
                     });
                 }
                 break;
             case 'Cancel Friend Request':
-                API.cancelFriendRequest({
+                api.cancelFriendRequest({
                     userId
                 });
                 break;
             case 'Send Friend Request':
-                API.sendFriendRequest({
+                api.sendFriendRequest({
                     userId
                 });
                 break;
             case 'Unblock':
-                API.deletePlayerModeration({
+                api.deletePlayerModeration({
                     moderated: userId,
                     type: 'block'
                 });
                 break;
             case 'Block':
-                API.sendPlayerModeration({
+                api.sendPlayerModeration({
                     moderated: userId,
                     type: 'block'
                 });
                 break;
             case 'Unmute':
-                API.deletePlayerModeration({
+                api.deletePlayerModeration({
                     moderated: userId,
                     type: 'mute'
                 });
                 break;
             case 'Mute':
-                API.sendPlayerModeration({
+                api.sendPlayerModeration({
                     moderated: userId,
                     type: 'mute'
                 });
                 break;
             case 'Show Avatar':
-                API.deletePlayerModeration({
+                api.deletePlayerModeration({
                     moderated: userId,
                     type: 'hideAvatar'
                 });
                 break;
             case 'Hide Avatar':
-                API.sendPlayerModeration({
+                api.sendPlayerModeration({
                     moderated: userId,
                     type: 'hideAvatar'
                 });
                 break;
             case 'Unfriend':
-                API.deleteFriend({
+                api.deleteFriend({
                     userId
                 });
                 break;
@@ -8328,7 +5736,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.userDialogCommand = function(command) {
+    $app.methods.userDialogCommand = async function(command) {
         var D = this.userDialog;
         if (D.visible === false) {
             return;
@@ -8344,26 +5752,28 @@ speechSynthesis.getVoices();
         } else if (command === 'Logout') {
             this.logout();
         } else if (command === 'Request Invite') {
-            API.sendRequestInvite(D.id, {
-                platform: 'standalonewindows'
-            }).then((args) => {
+            try {
+                await api.sendRequestInvite(D.id, {
+                    platform: 'standalonewindows'
+                });
                 this.$message('Request invite sent');
-                return args;
-            });
+            } catch (err) {
+                console.error(err);
+            }
         } else if (command === 'Invite Message') {
-            var L = parseLocation(this.lastLocation.location);
-            api.getCachedWorld({
-                worldId: L.worldId
-            }).then((args) => {
-                this.showSendInviteDialog(
-                    {
-                        instanceId: this.lastLocation.location,
-                        worldId: this.lastLocation.location,
-                        worldName: args.ref.name
-                    },
-                    D.id
-                );
-            });
+            try {
+                var L = parseLocation(this.lastLocation.location);
+                var args = await api.getCachedWorld({
+                    worldId: L.worldId
+                });
+                this.showSendInviteDialog(D.id, {
+                    instanceId: this.lastLocation.location,
+                    worldId: this.lastLocation.location,
+                    worldName: args.ref.name
+                });
+            } catch (err) {
+                console.error(err);
+            }
         } else if (command === 'Request Invite Message') {
             this.showSendInviteRequestDialog(
                 {
@@ -8372,19 +5782,20 @@ speechSynthesis.getVoices();
                 D.id
             );
         } else if (command === 'Invite') {
-            var L = parseLocation(this.lastLocation.location);
-            api.getCachedWorld({
-                worldId: L.worldId
-            }).then((args) => {
-                api.sendInvite(D.id, {
+            try {
+                var L = parseLocation(this.lastLocation.location);
+                var args = await api.getCachedWorld({
+                    worldId: L.worldId
+                });
+                await api.sendInvite(D.id, {
                     instanceId: this.lastLocation.location,
                     worldId: this.lastLocation.location,
                     worldName: args.ref.name
-                }).then((_args) => {
-                    this.$message('Invite sent');
-                    return _args;
                 });
-            });
+                this.$message('Invite sent');
+            } catch (err) {
+                console.error(err);
+            }
         } else if (command === 'Show Avatar Author') {
             var {currentAvatarImageUrl} = D.ref;
             this.showAvatarAuthorDialog(D.id, currentAvatarImageUrl);
@@ -8463,44 +5874,49 @@ speechSynthesis.getVoices();
         $app.worldDialog.visible = false;
     });
 
-    pubsub.subscribe('WORLD', function(args) {
+    pubsub.subscribe('WORLD', async function(args) {
         var {ref} = args;
         var D = $app.worldDialog;
         if (D.visible === false || D.id !== ref.id) {
             return;
         }
+
         D.ref = ref;
         $app.applyWorldDialogInstances();
-        if (D.fileSize === 'Loading') {
-            var assetUrl = '';
-            for (var i = ref.unityPackages.length - 1; i > -1; i--) {
-                var unityPackage = ref.unityPackages[i];
-                if (
-                    unityPackage.platform === 'standalonewindows' &&
-                    unityPackage.unitySortNumber <= 20180420000
-                ) {
-                    assetUrl = unityPackage.assetUrl;
+
+        if (D.fileSize !== 'Loading') {
+            return;
+        }
+
+        var assetUrl = '';
+        for (var i = ref.unityPackages.length - 1; i > -1; i--) {
+            var unityPackage = ref.unityPackages[i];
+            if (
+                unityPackage.platform === 'standalonewindows' &&
+                unityPackage.unitySortNumber <= 20180420000
+            ) {
+                assetUrl = unityPackage.assetUrl;
+                break;
+            }
+        }
+        var fileId = extractFileId(assetUrl);
+        var fileVersion = extractFileVersion(assetUrl);
+
+        try {
+            var args = await API.getBundles(fileId);
+            var {versions} = args.json;
+            for (var i = versions.length - 1; i > -1; i--) {
+                var version = versions[i];
+                if (version.version == fileVersion) {
+                    D.fileCreatedAt = version.created_at;
+                    D.fileSize = `${(
+                        version.file.sizeInBytes / 1048576
+                    ).toFixed(2)} MiB`;
                     break;
                 }
             }
-            var fileId = extractFileId(assetUrl);
-            var fileVersion = extractFileVersion(assetUrl);
-            if (fileId) {
-                API.getBundles(fileId).then((args) => {
-                    var {versions} = args.json;
-                    var ctx = '';
-                    for (var i = versions.length - 1; i > -1; i--) {
-                        var version = versions[i];
-                        if (version.version == fileVersion) {
-                            D.fileCreatedAt = version.created_at;
-                            D.fileSize = `${(
-                                version.file.sizeInBytes / 1048576
-                            ).toFixed(2)} MiB`;
-                            break;
-                        }
-                    }
-                });
-            }
+        } catch (err) {
+            console.error(err);
         }
     });
 
@@ -8521,7 +5937,7 @@ speechSynthesis.getVoices();
         D.isFavorite = false;
     });
 
-    $app.methods.showWorldDialog = function(tag) {
+    $app.methods.showWorldDialog = async function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.worldDialog.$el));
         var D = this.worldDialog;
         var L = parseLocation(tag);
@@ -8535,32 +5951,31 @@ speechSynthesis.getVoices();
         D.fileSize = 'Loading';
         D.visible = true;
         D.loading = true;
-        api.getCachedWorld({
-            worldId: L.worldId
-        })
-            .catch((err) => {
-                D.loading = false;
-                D.visible = false;
-                throw err;
-            })
-            .then((args) => {
-                if (D.id === args.ref.id) {
-                    D.loading = false;
-                    D.ref = args.ref;
-                    D.isFavorite = api.favoriteMapByObjectId.has(D.id);
-                    D.rooms = [];
-                    this.updateVRChatCache();
-                    this.applyWorldDialogInstances();
-                    if (args.cache) {
-                        api.getWorld(args.params);
-                    }
-                }
-                return args;
+        try {
+            var args = await api.getCachedWorld({
+                worldId: L.worldId
             });
+            if (D.id === args.ref.id) {
+                D.loading = false;
+                D.ref = args.ref;
+                D.isFavorite = api.favoriteMapByObjectId.has(D.id);
+                D.rooms = [];
+                this.updateVRChatCache().catch(nop);
+                this.applyWorldDialogInstances();
+                if (args.cache) {
+                    api.getWorld(args.params);
+                }
+            }
+        } catch (err) {
+            console.error(err);
+            D.loading = false;
+            D.visible = false;
+        }
     };
 
     $app.methods.applyWorldDialogInstances = function() {
         var D = this.worldDialog;
+
         var instances = {};
         for (var [id, occupants] of D.ref.instances) {
             instances[id] = {
@@ -8569,19 +5984,22 @@ speechSynthesis.getVoices();
                 users: []
             };
         }
+
         var {instanceId} = D.$location;
-        if (instanceId && typeof instances[instanceId] === 'undefined') {
+        if (instanceId && instances[instanceId] === void 0) {
             instances[instanceId] = {
                 id: instanceId,
                 occupants: 0,
                 users: []
             };
         }
+
         var lastLocation$ = parseLocation(this.lastLocation.location);
         var playersInInstance = this.lastLocation.playerList;
+
         if (lastLocation$.worldId === D.id && playersInInstance.length > 0) {
             var instance = instances[lastLocation$.instanceId];
-            if (typeof instance === 'undefined') {
+            if (instance === void 0) {
                 instance = {
                     id: lastLocation$.instanceId,
                     occupants: 1,
@@ -8591,7 +6009,7 @@ speechSynthesis.getVoices();
             }
             instances[instance.id].occupants = playersInInstance.length;
             var ref = api.userMap.get(api.currentUser.id);
-            if (typeof ref === 'undefined') {
+            if (ref === void 0) {
                 ref = api.currentUser;
             }
             if (playersInInstance.includes(ref.displayName)) {
@@ -8618,10 +6036,11 @@ speechSynthesis.getVoices();
                 }
             }
         }
+
         for (var {ref} of this.friends.values()) {
             if (
-                typeof ref === 'undefined' ||
-                typeof ref.$location === 'undefined' ||
+                ref === void 0 ||
+                ref.$location === void 0 ||
                 ref.$location.worldId !== D.id ||
                 ref.$location.instanceId === lastLocation$.instanceId
             ) {
@@ -8629,7 +6048,7 @@ speechSynthesis.getVoices();
             }
             var {instanceId} = ref.$location;
             var instance = instances[instanceId];
-            if (typeof instance === 'undefined') {
+            if (instance === void 0) {
                 instance = {
                     id: instanceId,
                     occupants: 0,
@@ -8639,16 +6058,18 @@ speechSynthesis.getVoices();
             }
             instance.users.push(ref);
         }
+
         var rooms = [];
         for (var instance of Object.values(instances)) {
-            // due to references on callback of API.getUser()
+            // due to references on callback of api.getUser()
             // this should be block scope variable
             const L = parseLocation(`${D.id}:${instance.id}`);
             instance.location = L.location;
             instance.$location = L;
+
             if (L.ownerId) {
                 var ref = api.userMap.get(L.ownerId);
-                if (typeof ref === 'undefined') {
+                if (ref === void 0) {
                     api.getUser({
                         userId: L.ownerId
                     }).then((args) => {
@@ -8659,114 +6080,133 @@ speechSynthesis.getVoices();
                     L.user = ref;
                 }
             }
+
             instance.users.sort(compareByDisplayName);
             rooms.push(instance);
         }
+
         // sort by more friends, occupants
         rooms.sort(function(a, b) {
             return b.users.length - a.users.length || b.occupants - a.occupants;
         });
+
         D.rooms = rooms;
     };
 
-    $app.methods.worldDialogCommand = function(command) {
-        var D = this.worldDialog;
-        if (D.visible === false) {
+    $app.methods.worldDialogCommand = async function(command) {
+        var {worldDialog} = this;
+        if (worldDialog.visible === false) {
             return;
         }
         switch (command) {
             case 'Refresh':
-                D.loading = true;
-                api.getWorld({
-                    worldId: D.id
-                })
-                    .catch((err) => {
-                        D.loading = false;
-                        D.visible = false;
-                        throw err;
-                    })
-                    .then((args) => {
-                        if (D.id === args.ref.id) {
-                            D.loading = false;
-                            D.ref = args.ref;
-                            D.isFavorite = api.favoriteMapByObjectId.has(D.id);
-                            D.rooms = [];
-                            this.applyWorldDialogInstances();
-                            if (args.cache) {
-                                api.getWorld(args.params);
-                            }
-                        }
-                        return args;
+                worldDialog.loading = true;
+                try {
+                    var args = await api.getWorld({
+                        worldId: worldDialog.id
                     });
+                    if (worldDialog.id === args.ref.id) {
+                        worldDialog.ref = args.ref;
+                        worldDialog.isFavorite = api.favoriteMapByObjectId.has(
+                            worldDialog.id
+                        );
+                        worldDialog.rooms = [];
+                        this.applyWorldDialogInstances();
+                        if (args.cache) {
+                            api.getWorld(args.params);
+                        }
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+                worldDialog.loading = false;
                 break;
+
             case 'New Instance':
-                this.showNewInstanceDialog(D.$location.location);
+                this.showNewInstanceDialog(worldDialog.$location.location);
                 break;
+
             case 'Add Favorite':
-                this.showFavoriteDialog('world', D.id);
+                this.showFavoriteDialog('world', worldDialog.id);
                 break;
+
             case 'Rename':
-                this.promptRenameWorld(D);
+                this.promptRenameWorld(worldDialog);
                 break;
+
             case 'Change Image':
                 this.displayPreviousImages('World', 'Change');
                 break;
+
             case 'Previous Images':
                 this.displayPreviousImages('World', 'Display');
                 break;
+
             case 'Change Description':
-                this.promptChangeWorldDescription(D);
+                this.promptChangeWorldDescription(worldDialog);
                 break;
+
             default:
                 this.$confirm(`Continue? ${command}`, 'Confirm', {
                     confirmButtonText: 'Confirm',
                     cancelButtonText: 'Cancel',
                     type: 'info',
-                    callback: (action) => {
+                    callback: async (action) => {
                         if (action !== 'confirm') {
                             return;
                         }
                         switch (command) {
                             case 'Delete Favorite':
-                                API.deleteFavorite({
-                                    objectId: D.id
-                                });
+                                try {
+                                    await api.deleteFavorite({
+                                        objectId: worldDialog.id
+                                    });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Make Home':
-                                API.saveCurrentUser({
-                                    homeLocation: D.id
-                                }).then((args) => {
+                                try {
+                                    await api.saveCurrentUser({
+                                        homeLocation: worldDialog.id
+                                    });
                                     this.$message({
                                         message: 'Home world updated',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Reset Home':
-                                API.saveCurrentUser({
-                                    homeLocation: ''
-                                }).then((args) => {
+                                try {
+                                    await api.saveCurrentUser({
+                                        homeLocation: ''
+                                    });
                                     this.$message({
                                         message: 'Home world has been reset',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Delete':
-                                API.deleteWorld({
-                                    worldId: D.id
-                                }).then((args) => {
+                                try {
+                                    await api.deleteWorld({
+                                        worldId: worldDialog.id
+                                    });
                                     this.$message({
                                         message: 'World has been deleted',
                                         type: 'success'
                                     });
-                                    D.visible = false;
-                                    return args;
-                                });
-                                break;
-                            default:
+                                    worldDialog.visible = false;
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
                         }
                     }
@@ -8816,47 +6256,57 @@ speechSynthesis.getVoices();
         $app.avatarDialog.visible = false;
     });
 
-    pubsub.subscribe('AVATAR', function(args) {
+    pubsub.subscribe('AVATAR', async function(args) {
         var D = $app.avatarDialog;
         if (D.visible === false || D.id !== args.ref.id) {
             return;
         }
+
         var {ref} = args;
         D.ref = ref;
-        if (D.fileSize === 'Loading') {
-            var assetUrl = '';
-            for (var i = ref.unityPackages.length - 1; i > -1; i--) {
-                var unityPackage = ref.unityPackages[i];
-                if (
-                    unityPackage.platform === 'standalonewindows' &&
-                    unityPackage.unitySortNumber <= 20180420000
-                ) {
-                    assetUrl = unityPackage.assetUrl;
+
+        if (D.fileSize !== 'Loading') {
+            return;
+        }
+
+        var assetUrl = '';
+        for (var i = ref.unityPackages.length - 1; i > -1; i--) {
+            var unityPackage = ref.unityPackages[i];
+            if (
+                unityPackage.platform === 'standalonewindows' &&
+                unityPackage.unitySortNumber <= 20180420000
+            ) {
+                assetUrl = unityPackage.assetUrl;
+                break;
+            }
+        }
+
+        var fileId = extractFileId(assetUrl);
+        var fileVersion = extractFileVersion(assetUrl);
+        if (!fileId) {
+            var fileId = extractFileId(ref.assetUrl);
+            var fileVersion = extractFileVersion(ref.assetUrl);
+        }
+
+        if (!fileId) {
+            return;
+        }
+
+        try {
+            var args = await API.getBundles(fileId);
+            var {versions} = args.json;
+            for (var i = versions.length - 1; i > -1; i--) {
+                var version = versions[i];
+                if (version.version == fileVersion) {
+                    D.ref.created_at = version.created_at;
+                    D.fileSize = `${(
+                        version.file.sizeInBytes / 1048576
+                    ).toFixed(2)} MiB`;
                     break;
                 }
             }
-            var fileId = extractFileId(assetUrl);
-            var fileVersion = extractFileVersion(assetUrl);
-            if (!fileId) {
-                var fileId = extractFileId(ref.assetUrl);
-                var fileVersion = extractFileVersion(ref.assetUrl);
-            }
-            if (fileId) {
-                API.getBundles(fileId).then((args) => {
-                    var {versions} = args.json;
-                    var ctx = '';
-                    for (var i = versions.length - 1; i > -1; i--) {
-                        var version = versions[i];
-                        if (version.version == fileVersion) {
-                            D.ref.created_at = version.created_at;
-                            D.fileSize = `${(
-                                version.file.sizeInBytes / 1048576
-                            ).toFixed(2)} MiB`;
-                            break;
-                        }
-                    }
-                });
-            }
+        } catch (err) {
+            console.error(err);
         }
     });
 
@@ -8877,11 +6327,13 @@ speechSynthesis.getVoices();
         D.isFavorite = false;
     });
 
-    $app.methods.showAvatarDialog = function(avatarId) {
+    $app.methods.showAvatarDialog = async function(avatarId) {
         this.$nextTick(() => adjustDialogZ(this.$refs.avatarDialog.$el));
+
         var D = this.avatarDialog;
         D.id = avatarId;
-        var ref = API.cachedAvatars.get(avatarId);
+
+        var ref = api.avatarMap.get(avatarId);
         if (!ref) {
             D.visible = false;
             this.$message({
@@ -8890,14 +6342,16 @@ speechSynthesis.getVoices();
             });
             return;
         }
+
         D.treeData = [];
         D.fileSize = 'Unknown';
         D.visible = true;
         D.ref = ref;
         D.isFavorite = api.favoriteMapByObjectId.has(avatarId);
+
         if (D.ref.authorId === api.currentUser.id) {
             D.fileSize = 'Loading';
-            API.getAvatar({avatarId});
+            api.getAvatar({avatarId});
         } else {
             var assetUrl = '';
             for (var i = ref.unityPackages.length - 1; i > -1; i--) {
@@ -8919,9 +6373,9 @@ speechSynthesis.getVoices();
             var imageId = extractFileId(ref.thumbnailImageUrl);
             if (fileId) {
                 D.fileSize = 'Loading';
-                API.getBundles(fileId).then((args) => {
+                try {
+                    var args = await API.getBundles(fileId);
                     var {versions} = args.json;
-                    var ctx = '';
                     for (var i = versions.length - 1; i > -1; i--) {
                         var version = versions[i];
                         if (version.version == fileVersion) {
@@ -8932,16 +6386,23 @@ speechSynthesis.getVoices();
                             break;
                         }
                     }
-                });
+                } catch (err) {
+                    console.error(err);
+                }
             } else if (imageId && !D.ref.created_at) {
                 if (API.cachedAvatarNames.has(imageId)) {
                     var avatarInfo = API.cachedAvatarNames.get(imageId);
                     D.ref.created_at = avatarInfo.fileCreatedAt;
                 } else {
-                    API.getAvatarImages({fileId: imageId}).then((args) => {
+                    try {
+                        var args = await API.getAvatarImages({
+                            fileId: imageId
+                        });
                         var avatarInfo = this.storeAvatarImage(args);
                         D.ref.created_at = avatarInfo.fileCreatedAt;
-                    });
+                    } catch (err) {
+                        console.error(err);
+                    }
                 }
             }
         }
@@ -8956,98 +6417,122 @@ speechSynthesis.getVoices();
             case 'Rename':
                 this.promptRenameAvatar(D);
                 break;
+
             case 'Upload Image':
                 document.getElementById('AvatarImageUploadButton').click();
                 break;
+
             case 'Change Image':
                 this.displayPreviousImages('Avatar', 'Change');
                 break;
+
             case 'Previous Images':
                 this.displayPreviousImages('Avatar', 'Display');
                 break;
+
             case 'Change Description':
                 this.promptChangeAvatarDescription(D);
                 break;
+
             case 'Download Unity Package':
                 this.openExternalLink(this.avatarDialog.ref.unityPackageUrl);
                 break;
+
             case 'Add Favorite':
                 this.showFavoriteDialog('avatar', D.id);
                 break;
+
             default:
                 this.$confirm(`Continue? ${command}`, 'Confirm', {
                     confirmButtonText: 'Confirm',
                     cancelButtonText: 'Cancel',
                     type: 'info',
-                    callback: (action) => {
+                    callback: async (action) => {
                         if (action !== 'confirm') {
                             return;
                         }
                         switch (command) {
                             case 'Delete Favorite':
-                                API.deleteFavorite({
-                                    objectId: D.id
-                                });
+                                try {
+                                    await api.deleteFavorite({
+                                        objectId: D.id
+                                    });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Select Avatar':
-                                API.selectAvatar({
-                                    avatarId: D.id
-                                }).then((args) => {
+                                try {
+                                    await api.selectAvatar({
+                                        avatarId: D.id
+                                    });
                                     this.$message({
                                         message: 'Avatar changed',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Select Fallback Avatar':
-                                API.selectFallbackAvatar({
-                                    avatarId: D.id
-                                }).then((args) => {
+                                try {
+                                    await api.selectFallbackAvatar({
+                                        avatarId: D.id
+                                    });
                                     this.$message({
                                         message: 'Fallback avatar changed',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Make Public':
-                                API.saveAvatar({
-                                    id: D.id,
-                                    releaseStatus: 'public'
-                                }).then((args) => {
+                                try {
+                                    await api.saveAvatar({
+                                        id: D.id,
+                                        releaseStatus: 'public'
+                                    });
                                     this.$message({
                                         message: 'Avatar updated to public',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Make Private':
-                                API.saveAvatar({
-                                    id: D.id,
-                                    releaseStatus: 'private'
-                                }).then((args) => {
+                                try {
+                                    await api.saveAvatar({
+                                        id: D.id,
+                                        releaseStatus: 'private'
+                                    });
                                     this.$message({
                                         message: 'Avatar updated to private',
                                         type: 'success'
                                     });
-                                    return args;
-                                });
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
+
                             case 'Delete':
-                                API.deleteAvatar({
-                                    avatarId: D.id
-                                }).then((args) => {
+                                try {
+                                    await api.deleteAvatar({
+                                        avatarId: D.id
+                                    });
                                     this.$message({
                                         message: 'Avatar deleted',
                                         type: 'success'
                                     });
                                     D.visible = false;
-                                    return args;
-                                });
-                                break;
-                            default:
+                                } catch (err) {
+                                    console.error(err);
+                                }
                                 break;
                         }
                     }
@@ -9056,7 +6541,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.showAvatarAuthorDialog = function(
+    $app.methods.showAvatarAuthorDialog = async function(
         refUserId,
         currentAvatarImageUrl
     ) {
@@ -9068,25 +6553,29 @@ speechSynthesis.getVoices();
             });
             return;
         }
+
         if (
             refUserId === api.currentUser.id &&
-            API.cachedAvatars.has(api.currentUser.currentAvatar)
+            api.avatarMap.has(api.currentUser.currentAvatar)
         ) {
             this.showAvatarDialog(api.currentUser.currentAvatar);
             return;
         }
-        for (var ref of API.cachedAvatars.values()) {
+
+        for (var ref of api.avatarMap.values()) {
             if (extractFileId(ref.imageUrl) === fileId) {
                 this.showAvatarDialog(ref.id);
                 return;
             }
         }
+
         if (API.cachedAvatarNames.has(fileId)) {
             var {ownerId} = API.cachedAvatarNames.get(fileId);
             if (ownerId === api.currentUser.id) {
                 this.refreshUserDialogAvatars(fileId);
                 return;
             }
+
             if (ownerId === refUserId) {
                 this.$message({
                     message: "It's personal (own) avatar",
@@ -9094,19 +6583,28 @@ speechSynthesis.getVoices();
                 });
                 return;
             }
+
             this.showUserDialog(ownerId);
-        } else {
-            API.getAvatarImages({fileId}).then((args) => {
-                var ownerId = args.json.ownerId;
-                if (ownerId === refUserId) {
-                    this.$message({
-                        message: "It's personal (own) avatar",
-                        type: 'warning'
-                    });
-                    return;
-                }
-                this.showUserDialog(ownerId);
+            return;
+        }
+
+        try {
+            var args = await API.getAvatarImages({
+                fileId
             });
+
+            var ownerId = args.json.ownerId;
+            if (ownerId === refUserId) {
+                this.$message({
+                    message: "It's personal (own) avatar",
+                    type: 'warning'
+                });
+                return;
+            }
+
+            this.showUserDialog(ownerId);
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -9148,48 +6646,58 @@ speechSynthesis.getVoices();
         $app.favoriteDialog.visible = false;
     });
 
-    $app.methods.addFavorite = function(group) {
+    $app.methods.addFavorite = async function(group) {
         var D = this.favoriteDialog;
         D.loading = true;
-        API.addFavorite({
-            type: D.type,
-            favoriteId: D.objectId,
-            tags: group.name
-        })
-            .finally(() => {
-                D.loading = false;
-            })
-            .then((args) => {
-                D.visible = false;
-                return args;
+
+        try {
+            await api.addFavorite({
+                type: D.type,
+                favoriteId: D.objectId,
+                tags: group.name
             });
+            D.visible = false;
+        } catch (err) {
+            console.error(err);
+        }
+
+        D.loading = false;
     };
 
-    $app.methods.addFavoriteAvatar = function(ref, group) {
-        API.addFavorite({
-            type: 'avatar',
-            favoriteId: ref.id,
-            tags: group.name
-        });
+    $app.methods.addFavoriteAvatar = async function(ref, group) {
+        try {
+            await api.addFavorite({
+                type: 'avatar',
+                favoriteId: ref.id,
+                tags: group.name
+            });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
-    $app.methods.moveFavorite = function(ref, group, type) {
-        API.deleteFavorite({
-            objectId: ref.id
-        }).then(() => {
-            API.addFavorite({
+    $app.methods.moveFavorite = async function(ref, group, type) {
+        try {
+            await api.deleteFavorite({
+                objectId: ref.id
+            });
+            await api.addFavorite({
                 type,
                 favoriteId: ref.id,
                 tags: group.name
             });
-        });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     $app.methods.showFavoriteDialog = function(type, objectId) {
         this.$nextTick(() => adjustDialogZ(this.$refs.favoriteDialog.$el));
+
         var D = this.favoriteDialog;
         D.type = type;
         D.objectId = objectId;
+
         if (type === 'friend') {
             D.groups = api.favoriteFriendGroups;
             D.visible = true;
@@ -9221,13 +6729,14 @@ speechSynthesis.getVoices();
             confirmButtonText: 'Confirm',
             cancelButtonText: 'Cancel',
             type: 'info',
-            callback: (action) => {
+            callback: async (action) => {
                 var D = this.inviteDialog;
                 if (action !== 'confirm' || D.loading === true) {
                     return;
                 }
+
                 if (
-                    this.api.currentUser.status === 'busy' &&
+                    api.currentUser.status === 'busy' &&
                     D.userIds.includes(this.api.currentUser.id) === true
                 ) {
                     this.$message({
@@ -9237,44 +6746,54 @@ speechSynthesis.getVoices();
                     });
                     return;
                 }
+
                 D.loading = true;
-                var inviteLoop = () => {
-                    if (D.userIds.length > 0) {
-                        var receiverUserId = D.userIds.shift();
-                        api.sendInvite(receiverUserId, {
+
+                while (D.userIds.length > 0) {
+                    var receiverUserId = D.userIds.shift();
+                    try {
+                        await api.sendInvite(receiverUserId, {
                             instanceId: D.worldId,
                             worldId: D.worldId,
                             worldName: D.worldName
-                        }).finally(inviteLoop);
-                    } else {
-                        D.loading = false;
-                        D.visible = false;
-                        this.$message({
-                            message: 'Invite sent',
-                            type: 'success'
                         });
+                    } catch (err) {
+                        console.error(err);
                     }
-                };
-                inviteLoop();
+                }
+
+                this.$message({
+                    message: 'Invite sent',
+                    type: 'success'
+                });
+
+                D.loading = false;
+                D.visible = false;
             }
         });
     };
 
-    $app.methods.showInviteDialog = function(tag) {
+    $app.methods.showInviteDialog = async function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.inviteDialog.$el));
+
         var L = parseLocation(tag);
         if (L.isOffline || L.isPrivate || L.worldId === '') {
             return;
         }
-        api.getCachedWorld({
-            worldId: L.worldId
-        }).then((args) => {
+
+        try {
+            var args = await api.getCachedWorld({
+                worldId: L.worldId
+            });
+
             var D = this.inviteDialog;
             D.userIds = [];
             D.worldId = L.location;
             D.worldName = args.ref.name;
             D.visible = true;
-        });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     // App: Social Status Dialog
@@ -9290,33 +6809,35 @@ speechSynthesis.getVoices();
         $app.socialStatusDialog.visible = false;
     });
 
-    $app.methods.saveSocialStatus = function() {
+    $app.methods.saveSocialStatus = async function() {
         var D = this.socialStatusDialog;
         if (D.loading) {
             return;
         }
+
         D.loading = true;
-        API.saveCurrentUser({
-            status: D.status,
-            statusDescription: D.statusDescription
-        })
-            .finally(() => {
-                D.loading = false;
-            })
-            .then((args) => {
-                D.visible = false;
-                this.$message({
-                    message: 'Status updated',
-                    type: 'success'
-                });
-                return args;
+
+        try {
+            await api.saveCurrentUser({
+                status: D.status,
+                statusDescription: D.statusDescription
             });
+            this.$message({
+                message: 'Status updated',
+                type: 'success'
+            });
+            D.visible = false;
+        } catch (err) {
+            console.error(err);
+        }
+
+        D.loading = false;
     };
 
     $app.methods.showSocialStatusDialog = function() {
         this.$nextTick(() => adjustDialogZ(this.$refs.socialStatusDialog.$el));
         var D = this.socialStatusDialog;
-        var {statusHistory} = API.currentUser;
+        var {statusHistory} = api.currentUser;
         var statusHistoryArray = [];
         for (var i = 0; i < statusHistory.length; ++i) {
             var addStatus = {
@@ -9369,7 +6890,7 @@ speechSynthesis.getVoices();
         }
         var D = this.languageDialog;
         D.loading = true;
-        API.addUserTags({
+        api.addUserTags({
             tags: [`language_${language}`]
         }).finally(function() {
             D.loading = false;
@@ -9382,7 +6903,7 @@ speechSynthesis.getVoices();
         }
         var D = this.languageDialog;
         D.loading = true;
-        API.removeUserTags({
+        api.removeUserTags({
             tags: [`language_${language}`]
         }).finally(function() {
             D.loading = false;
@@ -9408,27 +6929,31 @@ speechSynthesis.getVoices();
         $app.bioDialog.visible = false;
     });
 
-    $app.methods.saveBio = function() {
+    $app.methods.saveBio = async function() {
         var D = this.bioDialog;
         if (D.loading) {
             return;
         }
+
         D.loading = true;
-        API.saveCurrentUser({
-            bio: D.bio,
-            bioLinks: D.bioLinks
-        })
-            .finally(() => {
-                D.loading = false;
-            })
-            .then((args) => {
-                D.visible = false;
-                this.$message({
-                    message: 'Bio updated',
-                    type: 'success'
-                });
-                return args;
+
+        try {
+            await api.saveCurrentUser({
+                bio: D.bio,
+                bioLinks: D.bioLinks
             });
+
+            this.$message({
+                message: 'Bio updated',
+                type: 'success'
+            });
+
+            D.visible = false;
+        } catch (err) {
+            console.error(err);
+        }
+
+        D.loading = false;
     };
 
     $app.methods.showBioDialog = function() {
@@ -9524,19 +7049,21 @@ speechSynthesis.getVoices();
             confirmButtonText: 'Confirm',
             cancelButtonText: 'Cancel',
             type: 'info',
-            callback: (action) => {
+            callback: async (action) => {
                 if (action !== 'confirm') {
                     return;
                 }
-                API.saveCurrentUser({
-                    homeLocation: tag
-                }).then((args) => {
+                try {
+                    await api.saveCurrentUser({
+                        homeLocation: tag
+                    });
                     this.$message({
                         message: 'Home world updated',
                         type: 'success'
                     });
-                    return args;
-                });
+                } catch (err) {
+                    console.error(err);
+                }
             }
         });
     };
@@ -9719,70 +7246,70 @@ speechSynthesis.getVoices();
         $app.VRCPlusIconsTable = {};
     });
 
-    $app.methods.displayVRCPlusIconsTable = function() {
-        var params = {
-            n: 50,
-            tag: 'icon'
-        };
-        API.refreshVRCPlusIconsTableData(params);
+    $app.methods.displayVRCPlusIconsTable = async function() {
+        try {
+            await API.refreshVRCPlusIconsTableData({
+                n: 50,
+                tag: 'icon'
+            });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
-    API.refreshVRCPlusIconsTableData = function(params) {
-        return api
-            .legacyApi('files', {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('VRCPLUSICON:LIST', args);
-                return args;
-            });
+    API.refreshVRCPlusIconsTableData = async function(params) {
+        var json = await api.legacyApi('files', {
+            method: 'GET',
+            params
+        });
+        var args = {
+            json,
+            params
+        };
+        pubsub.publish('VRCPLUSICON:LIST', args);
+        return args;
     };
 
     pubsub.subscribe('VRCPLUSICON:LIST', function(args) {
         $app.VRCPlusIconsTable = args.json;
     });
 
-    $app.methods.setVRCPlusIcon = function(userIcon) {
+    $app.methods.setVRCPlusIcon = async function(userIcon) {
         if (userIcon !== '') {
             userIcon = `https://api.vrchat.cloud/api/1/file/${userIcon}/1`;
         }
-        API.setVRCPlusIcon({
-            userIcon
-        }).then((args) => {
+        try {
+            await API.setVRCPlusIcon({
+                userIcon
+            });
             this.$message({
                 message: 'Icon changed',
                 type: 'success'
             });
-            return args;
-        });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
-    API.setVRCPlusIcon = function(params) {
-        return api
-            .legacyApi(`users/${api.currentUser.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('USER:CURRENT:SAVE', args);
-                return args;
-            });
+    API.setVRCPlusIcon = async function(params) {
+        var json = await api.legacyApi(`users/${api.currentUser.id}`, {
+            method: 'PUT',
+            params
+        });
+        var args = {
+            json,
+            params
+        };
+        pubsub.publish('USER:CURRENT:SAVE', args);
+        return args;
     };
 
-    $app.methods.deleteVRCPlusIcon = function(userIcon) {
-        API.deleteVRCPlusIcon(userIcon).then((args) => {
-            pubsub.publish('VRCPLUSICON:DELETE', args);
-            return args;
-        });
+    $app.methods.deleteVRCPlusIcon = async function(userIcon) {
+        try {
+            await API.deleteVRCPlusIcon(userIcon);
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     pubsub.subscribe('VRCPLUSICON:DELETE', function(args) {
@@ -9796,18 +7323,16 @@ speechSynthesis.getVoices();
         }
     });
 
-    API.deleteVRCPlusIcon = function(userIcon) {
-        return api
-            .legacyApi(`file/${userIcon}`, {
-                method: 'DELETE'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    userIcon
-                };
-                return args;
-            });
+    API.deleteVRCPlusIcon = async function(userIcon) {
+        var json = await api.legacyApi(`file/${userIcon}`, {
+            method: 'DELETE'
+        });
+        var args = {
+            json,
+            userIcon
+        };
+        pubsub.publish('VRCPLUSICON:DELETE', args);
+        return args;
     };
 
     $app.methods.compareCurrentVRCPlusIcon = function(userIcon) {
@@ -9820,62 +7345,58 @@ speechSynthesis.getVoices();
         return false;
     };
 
-    $app.methods.onFileChangeVRCPlusIcon = function(e) {
-        var clearFile = function() {
+    $app.methods.onFileChangeVRCPlusIcon = async function(e) {
+        try {
+            var files = e.target.files || e.dataTransfer.files;
+            if (!files.length) {
+                return;
+            }
+
+            if (files[0].size >= 10000000) {
+                //10MB
+                $app.$message({
+                    message: 'File size too large',
+                    type: 'error'
+                });
+                return;
+            }
+
+            if (!files[0].type.match(/image.*/)) {
+                $app.$message({
+                    message: "File isn't an image",
+                    type: 'error'
+                });
+                return;
+            }
+
+            try {
+                await API.uploadVRCPlusIcon(files[0]);
+                $app.$message({
+                    message: 'Icon uploaded',
+                    type: 'success'
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        } finally {
             if (document.querySelector('#VRCPlusIconUploadButton')) {
                 document.querySelector('#VRCPlusIconUploadButton').value = '';
             }
-        };
-        var files = e.target.files || e.dataTransfer.files;
-        if (!files.length) {
-            return;
         }
-        if (files[0].size >= 10000000) {
-            //10MB
-            $app.$message({
-                message: 'File size too large',
-                type: 'error'
-            });
-            clearFile();
-            return;
-        }
-        if (!files[0].type.match(/image.*/)) {
-            $app.$message({
-                message: "File isn't an image",
-                type: 'error'
-            });
-            clearFile();
-            return;
-        }
-        API.uploadVRCPlusIcon(files[0]).then((args) => {
-            $app.$message({
-                message: 'Icon uploaded',
-                type: 'success'
-            });
-            clearFile();
-            return args;
-        });
     };
 
-    $app.methods.displayVRCPlusIconUpload = function() {
-        document.getElementById('VRCPlusIconUploadButton').click();
-    };
-
-    API.uploadVRCPlusIcon = function(image) {
+    API.uploadVRCPlusIcon = async function(image) {
         var formData = new FormData();
         formData.set('image', image);
-        return api
-            .legacyApi('icon', {
-                method: 'POST',
-                params: formData
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                pubsub.publish('VRCPLUSICON:ADD', args);
-                return args;
-            });
+        var json = await api.legacyApi('icon', {
+            method: 'POST',
+            params: formData
+        });
+        var args = {
+            json
+        };
+        pubsub.publish('VRCPLUSICON:ADD', args);
+        return args;
     };
 
     pubsub.subscribe('VRCPLUSICON:ADD', function(args) {
@@ -9884,14 +7405,28 @@ speechSynthesis.getVoices();
         }
     });
 
+    $app.methods.displayVRCPlusIconUpload = function() {
+        document.getElementById('VRCPlusIconUploadButton').click();
+    };
+
     /** @type {File?} */
     var inviteImageFile = void 0;
+
+    $app.methods.clearInviteImageUpload = function() {
+        for (var button of document.querySelectorAll(
+            '.inviteImageUploadButton'
+        )) {
+            button.value = '';
+        }
+        inviteImageFile = void 0;
+    };
 
     $app.methods.inviteImageUpload = function(e) {
         var files = e.target.files || e.dataTransfer.files;
         if (!files.length) {
             return;
         }
+
         if (files[0].size >= 10000000) {
             //10MB
             $app.$message({
@@ -9901,6 +7436,7 @@ speechSynthesis.getVoices();
             this.clearInviteImageUpload();
             return;
         }
+
         if (!files[0].type.match(/image.png/)) {
             $app.$message({
                 message: "File isn't a png",
@@ -9909,13 +7445,8 @@ speechSynthesis.getVoices();
             this.clearInviteImageUpload();
             return;
         }
-        inviteImageFile = files[0];
-    };
 
-    $app.methods.clearInviteImageUpload = function() {
-        var buttonList = document.querySelectorAll('.inviteImageUploadButton');
-        buttonList.forEach((button) => (button.value = ''));
-        inviteImageFile = void 0;
+        inviteImageFile = files[0];
     };
 
     $app.methods.userOnlineFor = function(ctx) {
@@ -9944,19 +7475,37 @@ speechSynthesis.getVoices();
         API.refreshInviteMessageTableData(messageType);
     };
 
-    API.refreshInviteMessageTableData = function(messageType) {
-        return api
-            .legacyApi(`message/${api.currentUser.id}/${messageType}`, {
+    API.refreshInviteMessageTableData = async function(messageType) {
+        var json = await api.legacyApi(
+            `message/${api.currentUser.id}/${messageType}`,
+            {
                 method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    messageType
-                };
-                pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
-                return args;
-            });
+            }
+        );
+        var args = {
+            json,
+            messageType
+        };
+        pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
+        return args;
+    };
+
+    API.editInviteMessage = async function(messageType, slot, params) {
+        var json = await api.legacyApi(
+            `message/${api.currentUser.id}/${messageType}/${slot}`,
+            {
+                method: 'PUT',
+                params
+            }
+        );
+        var args = {
+            json,
+            params,
+            messageType,
+            slot
+        };
+        pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
+        return args;
     };
 
     pubsub.subscribe('INVITE:MESSAGE', function(args) {
@@ -9974,23 +7523,6 @@ speechSynthesis.getVoices();
     pubsub.subscribe('INVITE:REQUESTRESPONSE', function(args) {
         $app.inviteRequestResponseMessageTable.data = args.json;
     });
-
-    API.editInviteMessage = function(params, messageType, slot) {
-        return api
-            .legacyApi(`message/${api.currentUser.id}/${messageType}/${slot}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params,
-                    messageType,
-                    slot
-                };
-                return args;
-            });
-    };
 
     // App: Edit Invite Message Dialog
 
@@ -10015,35 +7547,36 @@ speechSynthesis.getVoices();
         D.messageType = messageType;
     };
 
-    $app.methods.saveEditInviteMessage = function() {
-        var D = this.editInviteMessageDialog;
-        D.visible = false;
-        if (D.inviteMessage.message !== D.newMessage) {
-            var slot = D.inviteMessage.slot;
-            var messageType = D.messageType;
-            var params = {
-                message: D.newMessage
-            };
-            API.editInviteMessage(params, messageType, slot)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
-                    if (args.json[slot].message === D.inviteMessage.message) {
-                        this.$message({
-                            message:
-                                "VRChat API didn't update message, try again",
-                            type: 'error'
-                        });
-                        throw new Error(
-                            "VRChat API didn't update message, try again"
-                        );
-                    } else {
-                        this.$message('Invite message updated');
-                    }
-                    return args;
+    $app.methods.saveEditInviteMessage = async function() {
+        var {editInviteMessageDialog} = this;
+        editInviteMessageDialog.visible = false;
+
+        var {
+            inviteMessage: {message, slot},
+            messageType,
+            newMessage
+        } = editInviteMessageDialog;
+
+        if (message === newMessage) {
+            return;
+        }
+
+        try {
+            var {json} = await API.editInviteMessage(messageType, slot, {
+                message: newMessage
+            });
+
+            if (json[slot].message !== newMessage) {
+                this.$message({
+                    message: "VRChat API didn't update message, try again",
+                    type: 'error'
                 });
+                return;
+            }
+
+            this.$message('Invite message updated');
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -10055,8 +7588,8 @@ speechSynthesis.getVoices();
 
     $app.data.editAndSendInviteResponseDialog = {
         visible: false,
-        inviteMessage: {},
         messageType: '',
+        inviteMessage: {},
         newMessage: ''
     };
 
@@ -10068,83 +7601,73 @@ speechSynthesis.getVoices();
             adjustDialogZ(this.$refs.editAndSendInviteResponseDialog.$el)
         );
         this.editAndSendInviteResponseDialog = {
-            newMessage: inviteMessage.message,
             visible: true,
             messageType,
-            inviteMessage
+            inviteMessage,
+            newMessage: inviteMessage.message
         };
     };
 
     $app.methods.saveEditAndSendInviteResponse = async function() {
-        var D = this.editAndSendInviteResponseDialog;
-        D.visible = false;
-        var messageType = D.messageType;
-        var slot = D.inviteMessage.slot;
-        if (D.inviteMessage.message !== D.newMessage) {
-            var params = {
-                message: D.newMessage
-            };
-            await API.editInviteMessage(params, messageType, slot)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
-                    if (args.json[slot].message === D.inviteMessage.message) {
-                        this.$message({
-                            message:
-                                "VRChat API didn't update message, try again",
-                            type: 'error'
-                        });
-                        throw new Error(
-                            "VRChat API didn't update message, try again"
-                        );
-                    } else {
-                        this.$message('Invite message updated');
-                    }
-                    return args;
+        var {editAndSendInviteResponseDialog} = this;
+        editAndSendInviteResponseDialog.visible = false;
+
+        try {
+            var {
+                messageType,
+                inviteMessage: {slot, message},
+                newMessage
+            } = editAndSendInviteResponseDialog;
+
+            if (message !== newMessage) {
+                var {json} = await API.editInviteMessage(messageType, slot, {
+                    message: newMessage
                 });
-        }
-        var I = this.sendInviteResponseDialog;
-        var params = {
-            responseSlot: slot,
-            rsvp: true
-        };
-        if (inviteImageFile) {
-            API.sendInviteResponsePhoto(I.invite.id, params)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    API.hideNotification({
-                        notificationId: I.invite.id
-                    });
+
+                if (json[slot].message !== newMessage) {
                     this.$message({
-                        message: 'Invite response message sent',
-                        type: 'success'
+                        message: "VRChat API didn't update message, try again",
+                        type: 'error'
                     });
-                    this.sendInviteResponseDialogVisible = false;
-                    this.sendInviteRequestResponseDialogVisible = false;
-                    return args;
+                    return;
+                }
+
+                this.$message('Invite message updated');
+            }
+
+            var inviteId = this.sendInviteResponseDialog.invite.id;
+
+            if (inviteImageFile) {
+                await api.sendInviteResponsePhoto(inviteId, {
+                    rsvp: 'true',
+                    responseSlot: slot,
+                    image: inviteImageFile
                 });
-        } else {
-            API.sendInviteResponse(I.invite.id, params)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    API.hideNotification({
-                        notificationId: I.invite.id
-                    });
-                    this.$message({
-                        message: 'Invite response message sent',
-                        type: 'success'
-                    });
-                    this.sendInviteResponseDialogVisible = false;
-                    this.sendInviteRequestResponseDialogVisible = false;
-                    return args;
+                this.$message({
+                    message: 'Invite response photo message sent',
+                    type: 'success'
                 });
+            } else {
+                await api.sendInviteResponse(inviteId, {
+                    rsvp: 'true',
+                    responseSlot: slot
+                });
+                this.$message({
+                    message: 'Invite response message sent',
+                    type: 'success'
+                });
+            }
+
+            await api.hideNotification({
+                notificationId: inviteId
+            });
+        } catch (err) {
+            console.error(err);
+            return;
         }
+
+        this.sendInviteResponseDialogVisible = false;
+        this.sendInviteRequestResponseDialogVisible = false;
     };
 
     $app.methods.cancelEditAndSendInviteResponse = function() {
@@ -10172,10 +7695,13 @@ speechSynthesis.getVoices();
         this.sendInviteResponseDialog = {
             invite
         };
+
         API.refreshInviteMessageTableData('response');
+
         this.$nextTick(() =>
             adjustDialogZ(this.$refs.sendInviteResponseDialog.$el)
         );
+
         this.clearInviteImageUpload();
         this.sendInviteResponseDialogVisible = true;
     };
@@ -10187,9 +7713,11 @@ speechSynthesis.getVoices();
         ) {
             return;
         }
+
         this.$nextTick(() =>
             adjustDialogZ(this.$refs.sendInviteResponseConfirmDialog.$el)
         );
+
         this.sendInviteResponseConfirmDialog.visible = true;
         this.sendInviteResponseDialog.messageSlot = val.slot;
     };
@@ -10202,44 +7730,43 @@ speechSynthesis.getVoices();
         this.sendInviteResponseConfirmDialog.visible = false;
     };
 
-    $app.methods.sendInviteResponseConfirm = function() {
-        var D = this.sendInviteResponseDialog;
-        var params = {
-            responseSlot: D.messageSlot,
-            rsvp: true
-        };
-        if (inviteImageFile) {
-            params.image = inviteImageFile;
-            API.sendInviteResponsePhoto(D.invite.id, params)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    API.hideNotification({
-                        notificationId: D.invite.id
-                    });
-                    this.$message({
-                        message: 'Invite response photo message sent',
-                        type: 'success'
-                    });
-                    return args;
+    $app.methods.sendInviteResponseConfirm = async function() {
+        var {sendInviteResponseDialog} = this;
+
+        try {
+            var {
+                messageSlot,
+                invite: {id: inviteId}
+            } = sendInviteResponseDialog;
+
+            if (inviteImageFile) {
+                await api.sendInviteResponsePhoto(inviteId, {
+                    rsvp: 'true',
+                    responseSlot: messageSlot,
+                    image: inviteImageFile
                 });
-        } else {
-            API.sendInviteResponse(D.invite.id, params)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    API.hideNotification({
-                        notificationId: D.invite.id
-                    });
-                    this.$message({
-                        message: 'Invite response message sent',
-                        type: 'success'
-                    });
-                    return args;
+                this.$message({
+                    message: 'Invite response photo message sent',
+                    type: 'success'
                 });
+            } else {
+                await api.sendInviteResponse(inviteId, {
+                    rsvp: 'true',
+                    responseSlot: messageSlot
+                });
+                this.$message({
+                    message: 'Invite response message sent',
+                    type: 'success'
+                });
+            }
+
+            await api.hideNotification({
+                notificationId: inviteId
+            });
+        } catch (err) {
+            console.error(err);
         }
+
         this.sendInviteResponseDialogVisible = false;
         this.sendInviteRequestResponseDialogVisible = false;
         this.sendInviteResponseConfirmDialog.visible = false;
@@ -10262,10 +7789,13 @@ speechSynthesis.getVoices();
         this.sendInviteResponseDialog = {
             invite
         };
+
         API.refreshInviteMessageTableData('requestResponse');
+
         this.$nextTick(() =>
             adjustDialogZ(this.$refs.sendInviteRequestResponseDialog.$el)
         );
+
         this.clearInviteImageUpload();
         this.sendInviteRequestResponseDialogVisible = true;
     };
@@ -10275,8 +7805,8 @@ speechSynthesis.getVoices();
     $app.data.editAndSendInviteDialog = {
         visible: false,
         messageType: '',
-        newMessage: '',
-        inviteMessage: {}
+        inviteMessage: {},
+        newMessage: ''
     };
 
     $app.methods.showEditAndSendInviteDialog = function(
@@ -10289,147 +7819,149 @@ speechSynthesis.getVoices();
         this.editAndSendInviteDialog = {
             visible: true,
             messageType,
-            newMessage: inviteMessage.message,
-            inviteMessage
+            inviteMessage,
+            newMessage: inviteMessage.message
         };
     };
 
-    // NEED TO BE CLEANED UP
     $app.methods.saveEditAndSendInvite = async function() {
-        var D = this.editAndSendInviteDialog;
-        D.visible = false;
-        var messageType = D.messageType;
-        var slot = D.inviteMessage.slot;
-        if (D.inviteMessage.message !== D.newMessage) {
-            var params = {
-                message: D.newMessage
-            };
-            await API.editInviteMessage(params, messageType, slot)
-                .catch((err) => {
-                    throw err;
-                })
-                .then((args) => {
-                    pubsub.publish(`INVITE:${messageType.toUpperCase()}`, args);
-                    if (args.json[slot].message === D.inviteMessage.message) {
-                        this.$message({
-                            message:
-                                "VRChat API didn't update message, try again",
-                            type: 'error'
-                        });
-                        throw new Error(
-                            "VRChat API didn't update message, try again"
-                        );
-                    } else {
-                        this.$message('Invite message updated');
-                    }
-                    return args;
-                });
+        if (api.currentUser.status === 'busy') {
+            this.$message({
+                message: "You can't invite yourself in 'Do Not Disturb' mode",
+                type: 'error'
+            });
+            return;
         }
-        var I = this.sendInviteDialog;
-        var J = this.inviteDialog;
-        if (J.visible) {
-            if (
-                this.api.currentUser.status === 'busy' &&
-                J.userIds.includes(this.api.currentUser.id) === true
-            ) {
-                this.$message({
-                    message:
-                        "You can't invite yourself in 'Do Not Disturb' mode",
-                    type: 'error'
+
+        try {
+            var {editAndSendInviteDialog} = this;
+            editAndSendInviteDialog.visible = false;
+
+            var {
+                messageType,
+                inviteMessage: {slot, message},
+                newMessage
+            } = editAndSendInviteDialog;
+
+            if (message !== newMessage) {
+                var {json} = await API.editInviteMessage(messageType, slot, {
+                    message: newMessage
                 });
-                return;
+
+                if (json[slot].message !== newMessage) {
+                    this.$message({
+                        message: "VRChat API didn't update message, try again",
+                        type: 'error'
+                    });
+                    return;
+                }
+
+                this.$message('Invite message updated');
             }
-            var inviteLoop = () => {
-                if (J.userIds.length > 0) {
-                    var receiverUserId = J.userIds.shift();
-                    if (inviteImageFile !== void 0) {
-                        API.sendInvitePhoto(receiverUserId, {
-                            instanceId: J.worldId,
-                            worldId: J.worldId,
-                            worldName: J.worldName,
+
+            var {inviteDialog, sendInviteDialog} = this;
+
+            if (inviteDialog.visible) {
+                var {userIds, worldId} = inviteDialog;
+                inviteDialog.loading = true;
+
+                if (inviteImageFile) {
+                    var params = {
+                        instanceId: worldId,
+                        worldId: worldId,
+                        messageSlot: slot,
+                        image: inviteImageFile
+                    };
+                    while (userIds.length > 0) {
+                        var userId = userIds.shift();
+                        try {
+                            await api.sendInvitePhoto(userId, params);
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    }
+                } else {
+                    var params = {
+                        instanceId: worldId,
+                        worldId: worldId,
+                        messageSlot: slot
+                    };
+                    while (userIds.length > 0) {
+                        var userId = userIds.shift();
+                        try {
+                            await api.sendInvite(userId, params);
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    }
+                }
+
+                this.$message({
+                    message: 'Invite message sent',
+                    type: 'success'
+                });
+
+                inviteDialog.loading = false;
+                inviteDialog.visible = false;
+            } else {
+                var {
+                    userId,
+                    messageType,
+                    params: {worldId}
+                } = sendInviteDialog;
+                if (messageType === 'invite') {
+                    if (inviteImageFile) {
+                        await api.sendInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
                             messageSlot: slot,
                             image: inviteImageFile
-                        }).finally(inviteLoop);
+                        });
+                        this.$message({
+                            message: 'Invite photo message sent',
+                            type: 'success'
+                        });
                     } else {
-                        api.sendInvite(receiverUserId, {
-                            instanceId: J.worldId,
-                            worldId: J.worldId,
-                            worldName: J.worldName,
+                        await api.sendInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
                             messageSlot: slot
-                        }).finally(inviteLoop);
+                        });
+                        this.$message({
+                            message: 'Invite message sent',
+                            type: 'success'
+                        });
                     }
-                } else {
-                    J.loading = false;
-                    J.visible = false;
-                    this.$message({
-                        message: 'Invite message sent',
-                        type: 'success'
-                    });
-                }
-            };
-            inviteLoop();
-        } else {
-            if (I.messageType === 'invite') {
-                I.params.messageSlot = slot;
-                if (inviteImageFile !== void 0) {
-                    I.params.image = inviteImageFile;
-                    API.sendInvitePhoto(I.userId, I.params)
-                        .catch((err) => {
-                            throw err;
-                        })
-                        .then((args) => {
-                            this.$message({
-                                message: 'Invite photo message sent',
-                                type: 'success'
-                            });
-                            return args;
+                } else if (messageType === 'requestInvite') {
+                    if (inviteImageFile) {
+                        await api.sendRequestInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            requestSlot: slot,
+                            image: inviteImageFile
                         });
-                } else {
-                    I.params.image = void 0;
-                    api.sendInvite(I.userId, I.params)
-                        .catch((err) => {
-                            throw err;
-                        })
-                        .then((args) => {
-                            this.$message({
-                                message: 'Invite message sent',
-                                type: 'success'
-                            });
-                            return args;
+                        this.$message({
+                            message: 'Request invite photo message sent',
+                            type: 'success'
                         });
-                }
-            } else if (I.messageType === 'requestInvite') {
-                I.params.requestSlot = slot;
-                if (inviteImageFile) {
-                    I.params.image = inviteImageFile;
-                    API.sendRequestInvitePhoto(I.userId, I.params)
-                        .catch((err) => {
-                            this.clearInviteImageUpload();
-                            throw err;
-                        })
-                        .then((args) => {
-                            this.$message({
-                                message: 'Request invite photo message sent',
-                                type: 'success'
-                            });
-                            return args;
+                    } else {
+                        await api.sendRequestInvite(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            requestSlot: slot
                         });
-                } else {
-                    I.params.image = void 0;
-                    API.sendRequestInvite(I.userId, I.params)
-                        .catch((err) => {
-                            throw err;
-                        })
-                        .then((args) => {
-                            this.$message({
-                                message: 'Request invite message sent',
-                                type: 'success'
-                            });
-                            return args;
+                        this.$message({
+                            message: 'Request invite message sent',
+                            type: 'success'
                         });
+                    }
                 }
             }
+        } catch (err) {
+            console.error(err);
+            this.clearInviteImageUpload();
         }
+
         this.sendInviteDialogVisible = false;
         this.sendInviteRequestDialogVisible = false;
     };
@@ -10439,10 +7971,10 @@ speechSynthesis.getVoices();
     };
 
     $app.data.sendInviteDialog = {
-        message: '',
-        messageSlot: 0,
         userId: '',
         messageType: '',
+        messageSlot: 0,
+        message: '',
         params: {}
     };
 
@@ -10457,14 +7989,17 @@ speechSynthesis.getVoices();
         $app.sendInviteConfirmDialog.visible = false;
     });
 
-    $app.methods.showSendInviteDialog = function(params, userId) {
+    $app.methods.showSendInviteDialog = function(userId, params = {}) {
         this.sendInviteDialog = {
-            params,
             userId,
-            messageType: 'invite'
+            messageType: 'invite',
+            params
         };
+
         API.refreshInviteMessageTableData('message');
+
         this.$nextTick(() => adjustDialogZ(this.$refs.sendInviteDialog.$el));
+
         this.clearInviteImageUpload();
         this.sendInviteDialogVisible = true;
     };
@@ -10488,105 +8023,120 @@ speechSynthesis.getVoices();
         this.sendInviteConfirmDialog.visible = false;
     };
 
-    $app.methods.sendInviteConfirm = function() {
-        if (this.api.currentUser.status === 'busy') {
+    $app.methods.sendInviteConfirm = async function() {
+        if (api.currentUser.status === 'busy') {
             this.$message({
                 message: "You can't invite yourself in 'Do Not Disturb' mode",
                 type: 'error'
             });
             return;
         }
-        var D = this.sendInviteDialog;
-        var J = this.inviteDialog;
-        if (J.visible) {
-            var inviteLoop = () => {
-                if (J.userIds.length > 0) {
-                    var receiverUserId = J.userIds.shift();
-                    if (inviteImageFile) {
-                        API.sendInvitePhoto(receiverUserId, {
-                            instanceId: J.worldId,
-                            worldId: J.worldId,
-                            worldName: J.worldName,
-                            messageSlot: D.messageSlot,
-                            image: inviteImageFile
-                        }).finally(inviteLoop);
-                    } else {
-                        api.sendInvite(receiverUserId, {
-                            instanceId: J.worldId,
-                            worldId: J.worldId,
-                            worldName: J.worldName,
-                            messageSlot: D.messageSlot
-                        }).finally(inviteLoop);
+
+        try {
+            var {sendInviteDialog, inviteDialog} = this;
+            var {messageSlot} = sendInviteDialog;
+
+            if (inviteDialog.visible) {
+                var {userIds, worldId} = inviteDialog;
+                inviteDialog.loading = true;
+
+                if (inviteImageFile) {
+                    var params = {
+                        instanceId: worldId,
+                        worldId: worldId,
+                        messageSlot,
+                        image: inviteImageFile
+                    };
+                    while (userIds.length > 0) {
+                        var userId = userIds.shift();
+                        try {
+                            await api.sendInvitePhoto(userId, params);
+                        } catch (err) {
+                            console.error(err);
+                        }
                     }
                 } else {
-                    J.loading = false;
-                    J.visible = false;
-                    this.$message({
-                        message: 'Invite message sent',
-                        type: 'success'
-                    });
+                    var params = {
+                        instanceId: worldId,
+                        worldId: worldId,
+                        messageSlot
+                    };
+                    while (userIds.length > 0) {
+                        var userId = userIds.shift();
+                        try {
+                            await api.sendInvite(userId, params);
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    }
                 }
-            };
-            inviteLoop();
-        } else if (D.messageType === 'invite') {
-            if (inviteImageFile) {
-                D.params.image = inviteImageFile;
-                API.sendInvitePhoto(D.userId, D.params)
-                    .catch((err) => {
-                        throw err;
-                    })
-                    .then((args) => {
+
+                this.$message({
+                    message: 'Invite message sent',
+                    type: 'success'
+                });
+
+                inviteDialog.loading = false;
+                inviteDialog.visible = false;
+            } else {
+                var {
+                    userId,
+                    messageType,
+                    params: {worldId}
+                } = sendInviteDialog;
+
+                if (messageType === 'invite') {
+                    if (inviteImageFile) {
+                        await api.sendInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            messageSlot,
+                            image: inviteImageFile
+                        });
                         this.$message({
                             message: 'Invite photo message sent',
                             type: 'success'
                         });
-                        return args;
-                    });
-            } else {
-                D.params.image = void 0;
-                api.sendInvite(D.userId, D.params)
-                    .catch((err) => {
-                        throw err;
-                    })
-                    .then((args) => {
+                    } else {
+                        await api.sendInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            messageSlot
+                        });
                         this.$message({
                             message: 'Invite message sent',
                             type: 'success'
                         });
-                        return args;
-                    });
-            }
-        } else if (D.messageType === 'requestInvite') {
-            D.params.requestSlot = D.messageSlot;
-            if (inviteImageFile) {
-                D.params.image = inviteImageFile;
-                API.sendRequestInvitePhoto(D.userId, D.params)
-                    .catch((err) => {
-                        this.clearInviteImageUpload();
-                        throw err;
-                    })
-                    .then((args) => {
+                    }
+                } else if (messageType === 'requestInvite') {
+                    if (inviteImageFile) {
+                        await api.sendRequestInvitePhoto(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            requestSlot: messageSlot,
+                            image: inviteImageFile
+                        });
                         this.$message({
                             message: 'Request invite photo message sent',
                             type: 'success'
                         });
-                        return args;
-                    });
-            } else {
-                D.params.image = void 0;
-                API.sendRequestInvite(D.userId, D.params)
-                    .catch((err) => {
-                        throw err;
-                    })
-                    .then((args) => {
+                    } else {
+                        await api.sendRequestInvite(userId, {
+                            instanceId: worldId,
+                            worldId: worldId,
+                            requestSlot: messageSlot
+                        });
                         this.$message({
                             message: 'Request invite message sent',
                             type: 'success'
                         });
-                        return args;
-                    });
+                    }
+                }
             }
+        } catch (err) {
+            console.error(err);
         }
+
         this.sendInviteDialogVisible = false;
         this.sendInviteRequestDialogVisible = false;
         this.sendInviteConfirmDialog.visible = false;
@@ -10611,10 +8161,13 @@ speechSynthesis.getVoices();
             userId,
             messageType: 'requestInvite'
         };
+
         API.refreshInviteMessageTableData('request');
+
         this.$nextTick(() =>
             adjustDialogZ(this.$refs.sendInviteRequestDialog.$el)
         );
+
         this.clearInviteImageUpload();
         this.sendInviteRequestDialogVisible = true;
     };
@@ -10644,16 +8197,16 @@ speechSynthesis.getVoices();
     ];
 
     $app.methods.friendsListSearchChange = function() {
-        var filters = API.friendsListSearchFilters;
+        var filters = this.friendsListSearchFilters;
         var results = [];
-        if (API.friendsListSearch) {
-            var query = API.friendsListSearch.toUpperCase();
+        if (this.friendsListSearch) {
+            var query = this.friendsListSearch.toUpperCase();
         }
         for (var ctx of this.friends.values()) {
-            if (typeof ctx.ref === 'undefined') {
+            if (ctx.ref === void 0) {
                 continue;
             }
-            if (API.friendsListSearchFilterVIP && !ctx.isVIP) {
+            if (this.friendsListSearchFilterVIP && !ctx.isVIP) {
                 continue;
             }
             if (query && filters) {
@@ -10733,7 +8286,7 @@ speechSynthesis.getVoices();
             }
             results.push(ctx.ref);
         }
-        API.friendsListTable.data = results;
+        this.friendsListTable.data = results;
     };
 
     $app.watch.friendsListSearch = $app.methods.friendsListSearchChange;
@@ -10741,7 +8294,7 @@ speechSynthesis.getVoices();
     $app.data.friendsListLoadingProgress = '';
 
     $app.methods.friendsListLoadUsers = async function() {
-        API.friendsListLoading = true;
+        this.friendsListLoading = true;
         var i = 0;
         var toFetch = [];
         for (var ctx of this.friends.values()) {
@@ -10751,19 +8304,19 @@ speechSynthesis.getVoices();
         }
         var length = toFetch.length;
         for (var userId of toFetch) {
-            if (!API.friendsListLoading) {
-                API.friendsListLoadingProgress = '';
+            if (!this.friendsListLoading) {
+                this.friendsListLoadingProgress = '';
                 return;
             }
             i++;
-            API.friendsListLoadingProgress = `${i}/${length}`;
-            await API.getUser({
+            this.friendsListLoadingProgress = `${i}/${length}`;
+            await api.getUser({
                 userId: userId
             });
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-        API.friendsListLoadingProgress = '';
-        API.friendsListLoading = false;
+        this.friendsListLoadingProgress = '';
+        this.friendsListLoading = false;
     };
 
     $app.methods.sortAlphabetically = function(a, b, field) {
@@ -10799,176 +8352,176 @@ speechSynthesis.getVoices();
         return response;
     };
 
-    function base64ToBufferAsync(base64) {
-        var dataUrl = 'data:application/octet-binary;base64,' + base64;
-
-        fetch(dataUrl)
-            .then((res) => res.arrayBuffer())
-            .then((buffer) => {
-                console.log('base64 to buffer: ' + new Uint8Array(buffer));
-            });
-    }
-
     // Upload avatar image
 
     $app.methods.onFileChangeAvatarImage = function(e) {
-        var clearFile = function() {
+        try {
+            var files = e.target.files || e.dataTransfer.files;
+            if (
+                !files.length ||
+                !this.avatarDialog.visible ||
+                this.avatarDialog.loading
+            ) {
+                return;
+            }
+
+            if (files[0].size >= 10000000) {
+                //10MB
+                $app.$message({
+                    message: 'File size too large',
+                    type: 'error'
+                });
+                return;
+            }
+
+            if (!files[0].type.match(/image.png/)) {
+                $app.$message({
+                    message: "File isn't a png",
+                    type: 'error'
+                });
+                return;
+            }
+
+            var r = new FileReader();
+            r.onload = async function(file) {
+                var base64File = btoa(r.result);
+                var fileMd5 = await $app.genMd5(base64File);
+                var fileSizeInBytes = file.total;
+                var base64SignatureFile = await $app.genSig(base64File);
+                var signatureMd5 = await $app.genMd5(base64SignatureFile);
+                var signatureSizeInBytes = await $app.genLength(
+                    base64SignatureFile
+                );
+
+                var avatarId = $app.avatarDialog.id;
+                var fileId = extractFileId($app.avatarDialog.ref.imageUrl);
+                if (!fileId) {
+                    $app.$message({
+                        message: 'Current avatar image invalid',
+                        type: 'error'
+                    });
+                    return;
+                }
+
+                $app.avatarImage = {
+                    base64File,
+                    fileMd5,
+                    base64SignatureFile,
+                    signatureMd5,
+                    fileId,
+                    avatarId
+                };
+
+                var params = {
+                    fileMd5,
+                    fileSizeInBytes,
+                    signatureMd5,
+                    signatureSizeInBytes
+                };
+
+                this.avatarDialog.loading = true;
+
+                try {
+                    var json = await api.legacyApi(`file/${fileId}`, {
+                        method: 'POST',
+                        params
+                    });
+
+                    var fileVersion =
+                        json.versions[json.versions.length - 1].version;
+
+                    var json = await api.legacyApi(
+                        `file/${fileId}/${fileVersion}/file/start`,
+                        {
+                            method: 'PUT'
+                        }
+                    );
+
+                    await API.uploadAvatarImageFileAWS({
+                        url: json.url,
+                        fileId,
+                        fileVersion
+                    });
+
+                    await api.legacyApi(
+                        `file/${fileId}/${fileVersion}/file/finish`,
+                        {
+                            method: 'PUT',
+                            params: {
+                                maxParts: 0,
+                                nextPartNumber: 0
+                            }
+                        }
+                    );
+
+                    var json = await api.legacyApi(
+                        `file/${fileId}/${fileVersion}/signature/start`,
+                        {
+                            method: 'PUT'
+                        }
+                    );
+
+                    await API.uploadAvatarImageSigAWS({
+                        url: json.url,
+                        fileId,
+                        fileVersion
+                    });
+
+                    await api.legacyApi(
+                        `file/${fileId}/${fileVersion}/signature/finish`,
+                        {
+                            method: 'PUT',
+                            params: {
+                                maxParts: 0,
+                                nextPartNumber: 0
+                            }
+                        }
+                    );
+
+                    await API.setAvatarImage({
+                        id: avatarId,
+                        imageUrl: `https://api.vrchat.cloud/api/1/file/${fileId}/${fileVersion}/file`
+                    });
+                } catch (err) {
+                    console.error(err);
+
+                    // uploadAvatarFailCleanup
+                    try {
+                        var json = await api.legacyApi(`file/${fileId}`, {
+                            method: 'GET'
+                        });
+
+                        var fileVersion =
+                            json.versions[json.versions.length - 1].version;
+
+                        await Promise.all([
+                            api.legacyApi(
+                                `file/${fileId}/${fileVersion}/signature/finish`,
+                                {
+                                    method: 'PUT'
+                                }
+                            ),
+                            api.legacyApi(
+                                `file/${fileId}/${fileVersion}/file/finish`,
+                                {
+                                    method: 'PUT'
+                                }
+                            )
+                        ]);
+                    } catch (err) {
+                        console.error(err);
+                    }
+                }
+
+                app.avatarDialog.loading = false;
+            };
+            r.readAsBinaryString(files[0]);
+        } finally {
             if (document.querySelector('#AvatarImageUploadButton')) {
                 document.querySelector('#AvatarImageUploadButton').value = '';
             }
-        };
-        var files = e.target.files || e.dataTransfer.files;
-        if (
-            !files.length ||
-            !this.avatarDialog.visible ||
-            this.avatarDialog.loading
-        ) {
-            clearFile();
-            return;
-        }
-        if (files[0].size >= 10000000) {
-            //10MB
-            $app.$message({
-                message: 'File size too large',
-                type: 'error'
-            });
-            clearFile();
-            return;
-        }
-        if (!files[0].type.match(/image.png/)) {
-            $app.$message({
-                message: "File isn't a png",
-                type: 'error'
-            });
-            clearFile();
-            return;
-        }
-        this.avatarDialog.loading = true;
-        var r = new FileReader();
-        r.onload = async function(file) {
-            var base64File = btoa(r.result);
-            var fileMd5 = await $app.genMd5(base64File);
-            var fileSizeInBytes = file.total;
-            var base64SignatureFile = await $app.genSig(base64File);
-            var signatureMd5 = await $app.genMd5(base64SignatureFile);
-            var signatureSizeInBytes = await $app.genLength(
-                base64SignatureFile
-            );
-            var avatarId = $app.avatarDialog.id;
-            var {imageUrl} = $app.avatarDialog.ref;
-            var fileId = extractFileId(imageUrl);
-            if (!fileId) {
-                $app.$message({
-                    message: 'Current avatar image invalid',
-                    type: 'error'
-                });
-                clearFile();
-                return;
-            }
-            $app.avatarImage = {
-                base64File,
-                fileMd5,
-                base64SignatureFile,
-                signatureMd5,
-                fileId,
-                avatarId
-            };
-            var params = {
-                fileMd5,
-                fileSizeInBytes,
-                signatureMd5,
-                signatureSizeInBytes
-            };
-            API.uploadAvatarImage(params, fileId);
-        };
-        r.readAsBinaryString(files[0]);
-        clearFile();
-    };
-
-    API.uploadAvatarImage = async function(params, fileId) {
-        try {
-            return await api
-                .legacyApi(`file/${fileId}`, {
-                    method: 'POST',
-                    params
-                })
-                .then((json) => {
-                    var args = {
-                        json,
-                        params
-                    };
-                    pubsub.publish('AVATARIMAGE:INIT', args);
-                    return args;
-                });
-        } catch (err) {
-            console.error(err);
-            API.uploadAvatarFailCleanup(fileId);
         }
     };
-
-    API.uploadAvatarFailCleanup = async function(fileId) {
-        var json = await api
-            .legacyApi(`file/${fileId}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                return json;
-            });
-        var fileId = json.id;
-        var fileVersion = json.versions[json.versions.length - 1].version;
-        api.legacyApi(`file/${fileId}/${fileVersion}/signature/finish`, {
-            method: 'PUT'
-        });
-        api.legacyApi(`file/${fileId}/${fileVersion}/file/finish`, {
-            method: 'PUT'
-        });
-        $app.avatarDialog.loading = false;
-    };
-
-    pubsub.subscribe('AVATARIMAGE:INIT', function(args) {
-        var fileId = args.json.id;
-        var fileVersion =
-            args.json.versions[args.json.versions.length - 1].version;
-        var params = {
-            fileId,
-            fileVersion
-        };
-        API.uploadAvatarImageFileStart(params);
-    });
-
-    API.uploadAvatarImageFileStart = async function(params) {
-        try {
-            return await api
-                .legacyApi(
-                    `file/${params.fileId}/${params.fileVersion}/file/start`,
-                    {
-                        method: 'PUT'
-                    }
-                )
-                .then((json) => {
-                    var args = {
-                        json,
-                        params
-                    };
-                    pubsub.publish('AVATARIMAGE:FILESTART', args);
-                    return args;
-                });
-        } catch (err) {
-            console.error(err);
-            API.uploadAvatarFailCleanup(params.fileId);
-        }
-    };
-
-    pubsub.subscribe('AVATARIMAGE:FILESTART', function(args) {
-        var {url} = args.json;
-        var {fileId, fileVersion} = args.params;
-        var params = {
-            url,
-            fileId,
-            fileVersion
-        };
-        API.uploadAvatarImageFileAWS(params);
-    });
 
     API.uploadAvatarImageFileAWS = function(params) {
         // return webApiService.execute({
@@ -10993,80 +8546,6 @@ speechSynthesis.getVoices();
         // });
     };
 
-    pubsub.subscribe('AVATARIMAGE:FILEAWS', function(args) {
-        var {fileId, fileVersion} = args.params;
-        var params = {
-            fileId,
-            fileVersion
-        };
-        API.uploadAvatarImageFileFinish(params);
-    });
-
-    API.uploadAvatarImageFileFinish = function(params) {
-        return api
-            .legacyApi(
-                `file/${params.fileId}/${params.fileVersion}/file/finish`,
-                {
-                    method: 'PUT',
-                    params: {
-                        maxParts: 0,
-                        nextPartNumber: 0
-                    }
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATARIMAGE:FILEFINISH', args);
-                return args;
-            });
-    };
-
-    pubsub.subscribe('AVATARIMAGE:FILEFINISH', function(args) {
-        var {fileId, fileVersion} = args.params;
-        var params = {
-            fileId,
-            fileVersion
-        };
-        API.uploadAvatarImageSigStart(params);
-    });
-
-    API.uploadAvatarImageSigStart = async function(params) {
-        try {
-            return await api
-                .legacyApi(
-                    `file/${params.fileId}/${params.fileVersion}/signature/start`,
-                    {
-                        method: 'PUT'
-                    }
-                )
-                .then((json) => {
-                    var args = {
-                        json,
-                        params
-                    };
-                    pubsub.publish('AVATARIMAGE:SIGSTART', args);
-                    return args;
-                });
-        } catch (err) {
-            console.error(err);
-            API.uploadAvatarFailCleanup(params.fileId);
-        }
-    };
-
-    pubsub.subscribe('AVATARIMAGE:SIGSTART', function(args) {
-        var {url} = args.json;
-        var {fileId, fileVersion} = args.params;
-        var params = {
-            url,
-            fileId,
-            fileVersion
-        };
-        API.uploadAvatarImageSigAWS(params);
-    });
-
     API.uploadAvatarImageSigAWS = function(params) {
         // return webApiService.execute({
         //     url: params.url,
@@ -11090,61 +8569,18 @@ speechSynthesis.getVoices();
         // });
     };
 
-    pubsub.subscribe('AVATARIMAGE:SIGAWS', function(args) {
-        var {fileId, fileVersion} = args.params;
-        var params = {
-            fileId,
-            fileVersion
+    API.setAvatarImage = async function(params) {
+        var json = await api.legacyApi(`avatars/${params.id}`, {
+            method: 'PUT',
+            params
+        });
+        var args = {
+            json,
+            params
         };
-        API.uploadAvatarImageSigFinish(params);
-    });
-
-    API.uploadAvatarImageSigFinish = function(params) {
-        return api
-            .legacyApi(
-                `file/${params.fileId}/${params.fileVersion}/signature/finish`,
-                {
-                    method: 'PUT',
-                    params: {
-                        maxParts: 0,
-                        nextPartNumber: 0
-                    }
-                }
-            )
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATARIMAGE:SIGFINISH', args);
-                return args;
-            });
-    };
-
-    pubsub.subscribe('AVATARIMAGE:SIGFINISH', function(args) {
-        var {fileId, fileVersion} = args.params;
-        var parmas = {
-            id: $app.avatarImage.avatarId,
-            imageUrl: `https://api.vrchat.cloud/api/1/file/${fileId}/${fileVersion}/file`
-        };
-        API.setAvatarImage(parmas);
-    });
-
-    API.setAvatarImage = function(params) {
-        return api
-            .legacyApi(`avatars/${params.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATARIMAGE:SET', args);
-                pubsub.publish('AVATAR', args);
-                return args;
-            });
+        pubsub.publish('AVATARIMAGE:SET', args);
+        pubsub.publish('AVATAR', args);
+        return args;
     };
 
     pubsub.subscribe('AVATARIMAGE:SET', function(args) {
@@ -11159,21 +8595,18 @@ speechSynthesis.getVoices();
         }
     });
 
-    API.setWorldImage = function(params) {
-        return api
-            .legacyApi(`worlds/${params.id}`, {
-                method: 'PUT',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('WORLDIMAGE:SET', args);
-                pubsub.publish('WORLD', args);
-                return args;
-            });
+    API.setWorldImage = async function(params) {
+        var json = await api.legacyApi(`worlds/${params.id}`, {
+            method: 'PUT',
+            params
+        });
+        var args = {
+            json,
+            params
+        };
+        pubsub.publish('WORLDIMAGE:SET', args);
+        pubsub.publish('WORLD', args);
+        return args;
     };
 
     pubsub.subscribe('WORLDIMAGE:SET', function(args) {
@@ -11190,9 +8623,10 @@ speechSynthesis.getVoices();
 
     // Set avatar/world image
 
-    $app.methods.displayPreviousImages = function(type, command) {
+    $app.methods.displayPreviousImages = async function(type, command) {
         this.previousImagesTableFileId = '';
         this.previousImagesTable = '';
+
         if (type === 'Avatar') {
             var {imageUrl} = this.avatarDialog.ref;
         } else if (type === 'World') {
@@ -11200,19 +8634,23 @@ speechSynthesis.getVoices();
         } else if (type === 'User') {
             var imageUrl = this.userDialog.ref.currentAvatarImageUrl;
         }
+
         var fileId = extractFileId(imageUrl);
         if (!fileId) {
             return;
         }
+
         var params = {
             fileId
         };
+
         if (command === 'Display') {
             this.previousImagesDialogVisible = true;
             this.$nextTick(() =>
                 adjustDialogZ(this.$refs.previousImagesDialog.$el)
             );
         }
+
         if (type === 'Avatar') {
             if (command === 'Change') {
                 this.changeAvatarImageDialogVisible = true;
@@ -11220,11 +8658,14 @@ speechSynthesis.getVoices();
                     adjustDialogZ(this.$refs.changeAvatarImageDialog.$el)
                 );
             }
-            API.getAvatarImages(params).then((args) => {
+            try {
+                var args = await API.getAvatarImages(params);
                 this.previousImagesTableFileId = args.json.id;
                 var images = args.json.versions;
-                this.checkPreviousImageAvailable(images, command);
-            });
+                this.checkPreviousImageAvailable(images);
+            } catch (err) {
+                console.error(err);
+            }
         } else if (type === 'World') {
             if (command === 'Change') {
                 this.changeWorldImageDialogVisible = true;
@@ -11232,36 +8673,46 @@ speechSynthesis.getVoices();
                     adjustDialogZ(this.$refs.changeWorldImageDialog.$el)
                 );
             }
-            API.getWorldImages(params).then((args) => {
+            try {
+                var args = await API.getWorldImages(params);
                 this.previousImagesTableFileId = args.json.id;
                 var images = args.json.versions;
-                this.checkPreviousImageAvailable(images, command);
-            });
+                this.checkPreviousImageAvailable(images);
+            } catch (err) {
+                console.error(err);
+            }
         } else if (type === 'User') {
-            API.getAvatarImages(params).then((args) => {
+            try {
+                var args = await API.getAvatarImages(params);
                 this.previousImagesTableFileId = args.json.id;
                 var images = args.json.versions;
-                this.checkPreviousImageAvailable(images, command);
-            });
+                this.checkPreviousImageAvailable(images);
+            } catch (err) {
+                console.error(err);
+            }
         }
     };
 
-    $app.methods.checkPreviousImageAvailable = async function(images, command) {
+    $app.methods.checkPreviousImageAvailable = async function(images) {
         this.previousImagesTable = [];
         for (var image of images) {
-            if (image.file && image.file.url) {
-                var response = await fetch(image.file.url, {
+            var url = image?.file?.url;
+            if (url === void 0) {
+                continue;
+            }
+            try {
+                var response = await fetch(url, {
                     method: 'HEAD',
                     redirect: 'follow',
                     headers: {
                         'User-Agent': appVersion
                     }
-                }).catch((error) => {
-                    console.log(error);
                 });
                 if (response.status === 200) {
                     this.previousImagesTable.push(image);
                 }
+            } catch (err) {
+                console.error(err);
             }
         }
     };
@@ -11280,35 +8731,29 @@ speechSynthesis.getVoices();
     });
 
     API.getAvatarImages = async function(params) {
-        return await api
-            .legacyApi(`file/${params.fileId}`, {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('AVATARIMAGE:GET', args);
-                return args;
-            });
+        var json = await api.legacyApi(`file/${params.fileId}`, {
+            method: 'GET',
+            params
+        });
+        var args = {
+            json,
+            params
+        };
+        pubsub.publish('AVATARIMAGE:GET', args);
+        return args;
     };
 
     API.getWorldImages = async function(params) {
-        return await api
-            .legacyApi(`file/${params.fileId}`, {
-                method: 'GET',
-                params
-            })
-            .then((json) => {
-                var args = {
-                    json,
-                    params
-                };
-                pubsub.publish('WORLDIMAGE:GET', args);
-                return args;
-            });
+        var json = await api.legacyApi(`file/${params.fileId}`, {
+            method: 'GET',
+            params
+        });
+        var args = {
+            json,
+            params
+        };
+        pubsub.publish('WORLDIMAGE:GET', args);
+        return args;
     };
 
     pubsub.subscribe('AVATARIMAGE:GET', function(args) {
@@ -11336,28 +8781,36 @@ speechSynthesis.getVoices();
         return avatarInfo;
     };
 
-    $app.methods.setAvatarImage = function(image) {
+    $app.methods.setAvatarImage = async function(image) {
         this.changeAvatarImageDialogLoading = true;
-        var parmas = {
-            id: this.avatarDialog.id,
-            imageUrl: `https://api.vrchat.cloud/api/1/file/${this.previousImagesTableFileId}/${image.version}/file`
-        };
-        API.setAvatarImage(parmas).finally(() => {
-            this.changeAvatarImageDialogLoading = false;
+
+        try {
+            await API.setAvatarImage({
+                id: this.avatarDialog.id,
+                imageUrl: `https://api.vrchat.cloud/api/1/file/${this.previousImagesTableFileId}/${image.version}/file`
+            });
             this.changeAvatarImageDialogVisible = false;
-        });
+        } catch (err) {
+            console.error(err);
+        }
+
+        this.changeAvatarImageDialogLoading = false;
     };
 
-    $app.methods.setWorldImage = function(image) {
+    $app.methods.setWorldImage = async function(image) {
         this.changeWorldImageDialogLoading = true;
-        var parmas = {
-            id: this.worldDialog.id,
-            imageUrl: `https://api.vrchat.cloud/api/1/file/${this.previousImagesTableFileId}/${image.version}/file`
-        };
-        API.setWorldImage(parmas).finally(() => {
-            this.changeWorldImageDialogLoading = false;
+
+        try {
+            await API.setWorldImage({
+                id: this.worldDialog.id,
+                imageUrl: `https://api.vrchat.cloud/api/1/file/${this.previousImagesTableFileId}/${image.version}/file`
+            });
             this.changeWorldImageDialogVisible = false;
-        });
+        } catch (err) {
+            console.error(err);
+        }
+
+        this.changeWorldImageDialogLoading = false;
     };
 
     $app.methods.compareCurrentImage = function(image) {
@@ -11374,7 +8827,7 @@ speechSynthesis.getVoices();
 
     API.cachedAvatarNames = new Map();
 
-    $app.methods.getAvatarName = function(args) {
+    $app.methods.getAvatarName = async function() {
         var D = this.userDialog;
         D.$avatarInfo = {
             ownerId: '',
@@ -11392,13 +8845,15 @@ speechSynthesis.getVoices();
             D.$avatarInfo = API.cachedAvatarNames.get(fileId);
             return;
         }
-        var params = {
-            fileId
-        };
-        API.getAvatarImages(params).then((args) => {
+        try {
+            var args = await API.getAvatarImages({
+                fileId
+            });
             var avatarInfo = this.storeAvatarImage(args);
             this.userDialog.$avatarInfo = avatarInfo;
-        });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     $app.data.discordNamesDialogVisible = false;
@@ -11419,7 +8874,7 @@ speechSynthesis.getVoices();
         for (var userId of friends) {
             var {ref} = this.friends.get(userId);
             var discord = '';
-            if (typeof ref === 'undefined') {
+            if (ref === void 0) {
                 continue;
             }
             var name = ref.displayName;
@@ -11519,18 +8974,12 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.readVRChatConfigFile = async function() {
-        this.VRChatConfigFile = {};
-        var config = await AppApi.ReadConfigFile();
-        if (config) {
-            try {
-                this.VRChatConfigFile = JSON.parse(config);
-            } catch {
-                this.$message({
-                    message: 'Invalid JSON in config.json',
-                    type: 'error'
-                });
-                throw new Error('Invalid JSON in config.json');
-            }
+        try {
+            var config = await AppApi.ReadConfigFile();
+            this.VRChatConfigFile = JSON.parse(config);
+        } catch (err) {
+            console.error(err);
+            this.VRChatConfigFile = {};
         }
     };
 
@@ -11550,27 +8999,33 @@ speechSynthesis.getVoices();
     });
 
     $app.methods.showVRChatConfig = async function() {
-        await this.readVRChatConfigFile();
-        this.$nextTick(() => adjustDialogZ(this.$refs.VRChatConfigDialog.$el));
-        this.VRChatConfigDialog = {
-            cameraRes: false,
-            screenshotRes: false,
-            visible: true
-        };
-        if (
-            this.VRChatConfigFile.camera_res_height === 2160 &&
-            this.VRChatConfigFile.camera_res_width === 3840
-        ) {
-            this.VRChatConfigDialog.cameraRes = true;
-        }
-        if (
-            this.VRChatConfigFile.screenshot_res_height === 2160 &&
-            this.VRChatConfigFile.screenshot_res_width === 3840
-        ) {
-            this.VRChatConfigDialog.screenshotRes = true;
-        }
-        if (!this.VRChatUsedCacheSize) {
-            API.getVRChatCacheSize();
+        try {
+            await this.readVRChatConfigFile();
+            this.$nextTick(() =>
+                adjustDialogZ(this.$refs.VRChatConfigDialog.$el)
+            );
+            this.VRChatConfigDialog = {
+                cameraRes: false,
+                screenshotRes: false,
+                visible: true
+            };
+            if (
+                this.VRChatConfigFile.camera_res_height === 2160 &&
+                this.VRChatConfigFile.camera_res_width === 3840
+            ) {
+                this.VRChatConfigDialog.cameraRes = true;
+            }
+            if (
+                this.VRChatConfigFile.screenshot_res_height === 2160 &&
+                this.VRChatConfigFile.screenshot_res_width === 3840
+            ) {
+                this.VRChatConfigDialog.screenshotRes = true;
+            }
+            if (!this.VRChatUsedCacheSize) {
+                this.getVRChatCacheSize();
+            }
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -11612,36 +9067,43 @@ speechSynthesis.getVoices();
 
     $app.methods.getVRChatCacheDir = async function() {
         await this.readVRChatConfigFile();
+
         var cacheDirectory = '';
         if (this.VRChatConfigFile.cache_directory) {
             cacheDirectory = this.VRChatConfigFile.cache_directory;
         }
+
         return cacheDirectory;
+    };
+
+    $app.methods.checkVRChatCache = async function(ref) {
+        return AssetBundleCacher.CheckVRChatCache(
+            ref.id,
+            ref.version,
+            await this.getVRChatCacheDir()
+        );
     };
 
     // Asset Bundle Cacher
 
-    $app.methods.updateVRChatCache = function() {
+    $app.methods.updateVRChatCache = async function() {
         var D = this.worldDialog;
-        if (D.visible) {
-            D.inCache = false;
-            D.cacheSize = 0;
-            this.checkVRChatCache(D.ref).then((cacheSize) => {
-                if (cacheSize > 0) {
-                    D.inCache = true;
-                    D.cacheSize = `${(cacheSize / 1048576).toFixed(2)} MiB`;
-                }
-            });
+        if (!D.visible) {
+            return;
         }
-    };
 
-    $app.methods.checkVRChatCache = async function(ref) {
-        var cacheDir = await this.getVRChatCacheDir();
-        return await AssetBundleCacher.CheckVRChatCache(
-            ref.id,
-            ref.version,
-            cacheDir
-        );
+        D.inCache = false;
+        D.cacheSize = 0;
+
+        try {
+            var cacheSize = await this.checkVRChatCache(D.ref);
+            if (cacheSize > 0) {
+                D.inCache = true;
+                D.cacheSize = `${(cacheSize / 1048576).toFixed(2)} MiB`;
+            }
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     $app.methods.queueCacheDownload = function(ref, type) {
@@ -11660,16 +9122,13 @@ speechSynthesis.getVoices();
     };
 
     API.getBundles = async function(fileId) {
-        return api
-            .legacyApi(`file/${fileId}`, {
-                method: 'GET'
-            })
-            .then((json) => {
-                var args = {
-                    json
-                };
-                return args;
-            });
+        var json = await api.legacyApi(`file/${fileId}`, {
+            method: 'GET'
+        });
+        var args = {
+            json
+        };
+        return args;
     };
 
     $app.methods.downloadVRChatCache = async function() {
@@ -11766,7 +9225,7 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.cancelAllVRChatCacheDownload = function() {
-        if (typeof this.downloadCurrent.id !== 'undefined') {
+        if (this.downloadCurrent.id !== void 0) {
             this.cancelVRChatCacheDownload(this.downloadCurrent.id);
         }
         for (var queue of this.downloadQueue.values()) {
@@ -12014,7 +9473,7 @@ speechSynthesis.getVoices();
     $app.methods.deleteVRChatCache = async function(ref) {
         var cacheDir = await this.getVRChatCacheDir();
         await AssetBundleCacher.DeleteCache(cacheDir, ref.id, ref.version);
-        API.getVRChatCacheSize();
+        this.getVRChatCacheSize();
         this.updateVRChatCache();
     };
 
@@ -12025,7 +9484,7 @@ speechSynthesis.getVoices();
             type: 'info',
             callback: (action) => {
                 if (action === 'confirm') {
-                    API.deleteAllVRChatCache();
+                    this.deleteAllVRChatCache();
                 }
             }
         });
@@ -12034,7 +9493,7 @@ speechSynthesis.getVoices();
     $app.methods.deleteAllVRChatCache = async function() {
         var cacheDir = await this.getVRChatCacheDir();
         await AssetBundleCacher.DeleteAllCache(cacheDir);
-        API.getVRChatCacheSize();
+        this.getVRChatCacheSize();
     };
 
     $app.methods.autoVRChatCacheManagement = function() {
@@ -12047,7 +9506,7 @@ speechSynthesis.getVoices();
         var cacheDir = await this.getVRChatCacheDir();
         await AssetBundleCacher.SweepCache(cacheDir);
         if (this.VRChatConfigDialog.visible) {
-            API.getVRChatCacheSize();
+            this.getVRChatCacheSize();
         }
     };
 
@@ -12092,25 +9551,26 @@ speechSynthesis.getVoices();
         var params = {
             ownerId: userId
         };
-        var json = await api.legacyApi('favorite/groups', {
-            method: 'GET',
-            params
-        });
-        for (var i = 0; i < json.length; ++i) {
-            var list = json[i];
-            if (list.type !== 'world') {
-                continue;
+        try {
+            var json = await api.legacyApi('favorite/groups', {
+                method: 'GET',
+                params
+            });
+            for (var i = 0; i < json.length; ++i) {
+                var list = json[i];
+                if (list.type !== 'world') {
+                    continue;
+                }
+                var {json} = await api.getFavoriteWorlds({
+                    n: 100,
+                    offset: 0,
+                    userId,
+                    tag: list.name
+                });
+                worldLists.push([list.displayName, list.visibility, json]);
             }
-            var params = {
-                n: 100,
-                offset: 0,
-                userId,
-                tag: list.name
-            };
-            try {
-                var args = await API.getFavoriteWorlds(params);
-                worldLists.push([list.displayName, list.visibility, args.json]);
-            } catch (err) {}
+        } catch (err) {
+            console.error(err);
         }
         this.userFavoriteWorlds = worldLists;
         this.userDialog.isFavoriteWorldsLoading = false;
@@ -12130,19 +9590,20 @@ speechSynthesis.getVoices();
         return style;
     };
 
-    $app.methods.changeWorldGroupVisibility = function(name, visibility) {
-        var params = {
-            type: 'world',
-            group: name,
-            visibility
-        };
-        API.saveFavoriteGroup(params).then((args) => {
+    $app.methods.changeWorldGroupVisibility = async function(name, visibility) {
+        try {
+            await api.saveFavoriteGroup({
+                type: 'world',
+                group: name,
+                visibility
+            });
             this.$message({
                 message: 'Group visibility changed',
                 type: 'success'
             });
-            return args;
-        });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     $app = new Vue($app);

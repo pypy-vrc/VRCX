@@ -12,14 +12,11 @@ export default {
             this.$el.style.display = L.isOffline || L.isPrivate ? 'none' : '';
         },
         async confirm(this: any) {
-            var L = parseLocation(this.location);
-            if (L.isOffline || L.isPrivate || L.worldId === '') {
-                return;
-            }
             try {
-                var args = await api.getCachedWorld({
-                    worldId: L.worldId
-                });
+                var L = parseLocation(this.location);
+                if (L.isOffline || L.isPrivate || L.worldId === '') {
+                    return;
+                }
                 if (api.currentUser.status === 'busy') {
                     this.$message({
                         message:
@@ -28,15 +25,17 @@ export default {
                     });
                     return;
                 }
-                api.sendInvite(api.currentUser.id, {
+                var args = await api.getCachedWorld({
+                    worldId: L.worldId
+                });
+                await api.sendInvite(api.currentUser.id, {
                     instanceId: L.location,
                     worldId: L.location,
                     worldName: args.ref.name
-                }).finally(() => {
-                    this.$message({
-                        message: 'Invite sent to yourself',
-                        type: 'success'
-                    });
+                });
+                this.$message({
+                    message: 'Invite sent to yourself',
+                    type: 'success'
                 });
             } catch (err) {
                 console.error(err);

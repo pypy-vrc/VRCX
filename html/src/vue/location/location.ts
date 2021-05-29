@@ -36,7 +36,7 @@ export default {
             } else if (L.worldId) {
                 this.text = `${L.worldId} #${L.name} ${L.accessType}`;
                 var ref = api.worldMap.get(L.worldId);
-                if (typeof ref === 'undefined') {
+                if (ref === void 0) {
                     try {
                         var {json} = await api.getWorld({
                             worldId: L.worldId

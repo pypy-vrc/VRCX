@@ -248,7 +248,7 @@ html
 
             //- favorite
             .x-container(v-show="$refs.menu && $refs.menu.activeIndex === 'favorite'" v-if="$refs.menu && $refs.menu.activeIndex === 'favorite'")
-                el-button(type="default" :loading="api.isFavoriteLoading.value" @click="API.refreshFavorites()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1")
+                el-button(type="default" :loading="api.isFavoriteLoading.value" @click="api.refreshFavorites()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1")
                 el-tabs(type="card" v-loading="api.isFavoriteLoading.value")
                     el-tab-pane(label="Friend")
                         el-collapse(style="border:0")
@@ -281,8 +281,8 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteFriendGroups" :key="groupAPI.name")
-                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'friend')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
+                                                            template(v-if="apiFavoriteGroup.name !== group.name" v-for="apiFavoriteGroup in api.favoriteFriendGroups" :key="apiFavoriteGroup.name")
+                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, apiFavoriteGroup, 'friend')" :disabled="apiFavoriteGroup.count >= apiFavoriteGroup.capacity") {{ apiFavoriteGroup.displayName }} ({{ apiFavoriteGroup.count }} / {{ apiFavoriteGroup.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
                                                         span Unfavorite
@@ -328,8 +328,8 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteWorldGroups" :key="groupAPI.name")
-                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'world')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
+                                                            template(v-if="apiFavoriteGroup.name !== group.name" v-for="apiFavoriteGroup in api.favoriteWorldGroups" :key="apiFavoriteGroup.name")
+                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, apiFavoriteGroup, 'world')" :disabled="apiFavoriteGroup.count >= apiFavoriteGroup.capacity") {{ apiFavoriteGroup.displayName }} ({{ apiFavoriteGroup.count }} / {{ apiFavoriteGroup.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
                                                         span Unfavorite
@@ -366,8 +366,8 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteAvatarGroups" :key="groupAPI.name")
-                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'avatar')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
+                                                            template(v-if="apiFavoriteGroup.name !== group.name" v-for="apiFavoriteGroup in api.favoriteAvatarGroups" :key="apiFavoriteGroup.name")
+                                                                el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, apiFavoriteGroup, 'avatar')" :disabled="apiFavoriteGroup.count >= apiFavoriteGroup.capacity") {{ apiFavoriteGroup.displayName }} ({{ apiFavoriteGroup.count }} / {{ apiFavoriteGroup.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
                                                         span Unfavorite
@@ -412,7 +412,7 @@ html
                             el-select(v-model="playerModerationTable.filters[0].value" multiple clearable collapse-tags style="flex:1" placeholder="Filter")
                                 el-option(v-once v-for="type in ['block', 'mute', 'unmute', 'hideAvatar', 'showAvatar']" :key="type" :label="type" :value="type")
                             el-input(v-model="playerModerationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px")
-                            el-button(type="default" :loading="api.isPlayerModerationsLoading.value" @click="API.refreshPlayerModerations()" icon="el-icon-refresh" circle style="flex:none")
+                            el-button(type="default" :loading="api.isPlayerModerationsLoading.value" @click="api.refreshPlayerModerations()" icon="el-icon-refresh" circle style="flex:none")
                     el-table-column(label="Date" prop="created" sortable="custom" width="100")
                         template(v-once #default="scope")
                             el-tooltip(placement="right")
@@ -438,7 +438,7 @@ html
                             el-select(v-model="notificationTable.filters[0].value" multiple clearable collapse-tags style="flex:1" placeholder="Filter")
                                 el-option(v-once v-for="type in ['requestInvite', 'invite', 'requestInviteResponse', 'inviteResponse', 'friendRequest', 'message']" :key="type" :label="type" :value="type")
                             el-input(v-model="notificationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px")
-                            el-button(type="default" :loading="api.isNotificationsLoading.value" @click="API.refreshNotifications()" icon="el-icon-refresh" circle style="flex:none")
+                            el-button(type="default" :loading="api.isNotificationsLoading.value" @click="api.refreshNotifications()" icon="el-icon-refresh" circle style="flex:none")
                     el-table-column(label="Date" prop="created_at" sortable="custom" width="100")
                         template(v-once #default="scope")
                             el-tooltip(placement="right")
@@ -449,7 +449,7 @@ html
                         template(v-once #default="scope")
                             el-tooltip(placement="top" v-if="scope.row.type === 'invite'")
                                 template(#content)
-                                    span(v-text="API.parseInviteLocation(scope.row)")
+                                    span(v-text="$app.methods.parseInviteLocation(scope.row)")
                                 span.x-link(v-text="scope.row.type" @click="showWorldDialog(scope.row.details.worldId)")
                             span(v-else v-text="scope.row.type")
                     el-table-column(label="User" prop="senderUsername" width="150")
@@ -503,7 +503,7 @@ html
                     span.header Game Info
                     .x-friend-list(style="margin-top:10px")
                         .x-friend-item
-                            .detail(@click="API.getVisits()")
+                            .detail(@click="api.getVisits()")
                                 span.name Online Users
                                 span.extra(v-if="visits") {{visits}} users online.
                                 span.extra(v-else) Click to refresh
@@ -933,7 +933,7 @@ html
                                     img.avatar(v-if="displayVRCPlusIconsAsAvatar && item.ref.userIcon" v-lazy="item.ref.userIcon")
                                     img.avatar(v-else v-lazy="item.ref.currentAvatarThumbnailImageUrl")
                                 span(v-else) Search More: #[span(v-text="item.label" style="font-weight:bold")]
-                    el-button(type="default" @click="API.getCurrentUser(); API.refreshFriends()" size="mini" icon="el-icon-refresh" circle)
+                    el-button(type="default" @click="refreshFriendList" size="mini" icon="el-icon-refresh" circle)
                 .x-friend-list(style="padding-bottom:10px")
                     .x-friend-group
                         i.el-icon-arrow-right(:class="{ rotate: isFriendsGroupMe }")
