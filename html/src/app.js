@@ -8015,11 +8015,11 @@ speechSynthesis.getVoices();
         var D = this.userDialog;
         var L = parseLocation(D.ref.location);
         D.$location = L;
-        if (L.owerId) {
-            var ref = api.userMap.get(L.owerId);
+        if (L.ownerId) {
+            var ref = api.userMap.get(L.ownerId);
             if (typeof ref === 'undefined') {
-                API.getUser({
-                    userId: L.owerId
+                api.getUser({
+                    userId: L.ownerId
                 }).then((args) => {
                     Vue.set(L, 'user', args.ref);
                     return args;
@@ -8646,11 +8646,11 @@ speechSynthesis.getVoices();
             const L = parseLocation(`${D.id}:${instance.id}`);
             instance.location = L.location;
             instance.$location = L;
-            if (L.owerId) {
-                var ref = api.userMap.get(L.owerId);
+            if (L.ownerId) {
+                var ref = api.userMap.get(L.ownerId);
                 if (typeof ref === 'undefined') {
-                    API.getUser({
-                        userId: L.owerId
+                    api.getUser({
+                        userId: L.ownerId
                     }).then((args) => {
                         Vue.set(L, 'user', args.ref);
                         return args;
