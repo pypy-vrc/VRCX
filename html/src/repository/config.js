@@ -1,5 +1,5 @@
 import sqliteService from '../service/sqlite.js';
-import sharedRepository, { SharedRepository } from './shared.js';
+import sharedRepository, {SharedRepository} from './shared.js';
 
 var dirtyKeySet = new Set();
 
@@ -76,7 +76,4 @@ class ConfigRepository extends SharedRepository {
 var self = new ConfigRepository();
 window.configRepository = self;
 
-export {
-    self as default,
-    ConfigRepository
-};
+export {self as default, ConfigRepository};

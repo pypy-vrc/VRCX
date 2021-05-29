@@ -98,13 +98,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AssetBundleCacher.cs" />
-    <Compile Include="CefService.cs" />
     <Compile Include="Discord.cs" />
     <Compile Include="CpuMonitor.cs" />
     <Compile Include="OffScreenBrowser.cs" />
-    <Compile Include="NoopDragHandler.cs" />
+    <Compile Include="VRCXDragHandler.cs" />
     <Compile Include="OpenVR\openvr_api.cs" />
-    <Compile Include="WebApi.cs" />
+    <Compile Include="VRCXCookieAccessFilter.cs" />
+    <Compile Include="VRCXResourceRequestHandler.cs" />
+    <Compile Include="VRCXRequestHandler.cs" />
     <Compile Include="SQLite.cs" />
     <Compile Include="SharedVariable.cs" />
     <Compile Include="Util.cs" />
@@ -166,7 +167,7 @@
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.5.2">
       <Visible>False</Visible>
-      <ProductName>Microsoft .NET Framework 4.5.2 %28x86 and x64%29</ProductName>
+      <ProductName>Microsoft .NET Framework 4.5.2%28x86 및 x64%29</ProductName>
       <Install>true</Install>
     </BootstrapperPackage>
     <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
@@ -218,7 +219,8 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>xcopy /y "$(ProjectDir)OpenVR\win64\openvr_api.dll" .
+    <PostBuildEvent>xcopy /y "$(ProjectDir)VRChatRPC\VRChatRPC.dll" .
+xcopy /y "$(ProjectDir)OpenVR\win64\openvr_api.dll" .
 xcopy /y /E "$(ProjectDir)AssetBundleCacher" ".\AssetBundleCacher\"</PostBuildEvent>
   </PropertyGroup>
 </Project>

@@ -10,13 +10,13 @@ namespace VRCX
 {
     public static class WinApi
     {
-        [DllImport("kernel32.dll", SetLastError = false)]
+        [DllImport("kernel32.dll")]
         public static extern void CopyMemory(IntPtr destination, IntPtr source, uint length);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        [DllImport("user32.dll")]
+        public static extern IntPtr FindWindow(string className, string windowName);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     }
 }

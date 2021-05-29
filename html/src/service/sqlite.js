@@ -3,15 +3,19 @@
 class SQLiteService {
     execute(callback, sql, args = null) {
         return new Promise((resolve, reject) => {
-            SQLite.Execute((err, data) => {
-                if (err !== null) {
-                    reject(err);
-                } else if (data === null) {
-                    resolve();
-                } else {
-                    callback(data);
-                }
-            }, sql, args);
+            SQLite.Execute(
+                (err, data) => {
+                    if (err !== null) {
+                        reject(err);
+                    } else if (data === null) {
+                        resolve();
+                    } else {
+                        callback(data);
+                    }
+                },
+                sql,
+                args
+            );
         });
     }
 
@@ -23,7 +27,4 @@ class SQLiteService {
 var self = new SQLiteService();
 window.sqliteService = self;
 
-export {
-    self as default,
-    SQLiteService
-};
+export {self as default, SQLiteService};

@@ -12,11 +12,10 @@ import locale from 'element-ui/lib/locale/lang/en';
 import {appVersion} from './constants.js';
 import sharedRepository from './repository/shared.js';
 import configRepository from './repository/config.js';
-import webApiService from './service/webapi.js';
 
 speechSynthesis.getVoices();
 
-(async function () {
+(async function() {
     var $app = null;
 
     await CefSharp.BindObjectAsync(
@@ -42,10 +41,12 @@ speechSynthesis.getVoices();
         locale
     });
 
-    var escapeTag = (s) => String(s).replace(/["&'<>]/gu, (c) => `&#${c.charCodeAt(0)};`);
+    var escapeTag = (s) =>
+        String(s).replace(/["&'<>]/gu, (c) => `&#${c.charCodeAt(0)};`);
     Vue.filter('escapeTag', escapeTag);
 
-    var commaNumber = (n) => String(Number(n) || 0).replace(/(\d)(?=(\d{3})+(?!\d))/gu, '$1,');
+    var commaNumber = (n) =>
+        String(Number(n) || 0).replace(/(\d)(?=(\d{3})+(?!\d))/gu, '$1,');
     Vue.filter('commaNumber', commaNumber);
 
     var formatDate = (s, format) => {
@@ -55,24 +56,27 @@ speechSynthesis.getVoices();
         }
         var hours = dt.getHours();
         var map = {
-            'YYYY': String(10000 + dt.getFullYear()).substr(-4),
-            'MM': String(101 + dt.getMonth()).substr(-2),
-            'DD': String(100 + dt.getDate()).substr(-2),
-            'HH24': String(100 + hours).substr(-2),
-            'HH': String(100 + (hours > 12
-                ? hours - 12
-                : hours)).substr(-2),
-            'MI': String(100 + dt.getMinutes()).substr(-2),
-            'SS': String(100 + dt.getSeconds()).substr(-2),
-            'AMPM': hours >= 12
-                ? 'PM'
-                : 'AM'
+            YYYY: String(10000 + dt.getFullYear()).substr(-4),
+            MM: String(101 + dt.getMonth()).substr(-2),
+            DD: String(100 + dt.getDate()).substr(-2),
+            HH24: String(100 + hours).substr(-2),
+            HH: String(100 + (hours > 12 ? hours - 12 : hours)).substr(-2),
+            MI: String(100 + dt.getMinutes()).substr(-2),
+            SS: String(100 + dt.getSeconds()).substr(-2),
+            AMPM: hours >= 12 ? 'PM' : 'AM'
         };
-        return format.replace(/YYYY|MM|DD|HH24|HH|MI|SS|AMPM/gu, (c) => map[c] || c);
+        return format.replace(
+            /YYYY|MM|DD|HH24|HH|MI|SS|AMPM/gu,
+            (c) => map[c] || c
+        );
     };
     Vue.filter('formatDate', formatDate);
 
-    var textToHex = (s) => String(s).split('').map((c) => c.charCodeAt(0).toString(16)).join(' ');
+    var textToHex = (s) =>
+        String(s)
+            .split('')
+            .map((c) => c.charCodeAt(0).toString(16))
+            .join(' ');
     Vue.filter('textToHex', textToHex);
 
     var timeToText = (t) => {
@@ -97,8 +101,7 @@ speechSynthesis.getVoices();
             arr.push(`${Math.floor(sec / 60)}m`);
             sec %= 60;
         }
-        if (sec ||
-            !arr.length) {
+        if (sec || !arr.length) {
             arr.push(`${sec}s`);
         }
         return arr.join(' ');
@@ -113,7 +116,7 @@ speechSynthesis.getVoices();
 
     API.eventHandlers = new Map();
 
-    API.$emit = function (name, ...args) {
+    API.$emit = function(name, ...args) {
         // console.log(name, ...args);
         var handlers = this.eventHandlers.get(name);
         if (typeof handlers === 'undefined') {
@@ -128,7 +131,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    API.$on = function (name, handler) {
+    API.$on = function(name, handler) {
         var handlers = this.eventHandlers.get(name);
         if (typeof handlers === 'undefined') {
             handlers = [];
@@ -137,12 +140,12 @@ speechSynthesis.getVoices();
         handlers.push(handler);
     };
 
-    API.$off = function (name, handler) {
+    API.$off = function(name, handler) {
         var handlers = this.eventHandlers.get(name);
         if (typeof handlers === 'undefined') {
             return;
         }
-        var { length } = handlers;
+        var {length} = handlers;
         for (var i = 0; i < length; ++i) {
             if (handlers[i] === handler) {
                 if (length > 1) {
@@ -157,19 +160,19 @@ speechSynthesis.getVoices();
 
     API.pendingGetRequests = new Map();
 
-    API.call = function (endpoint, options) {
+    API.call = function(endpoint, options) {
         var init = {
             url: `https://api.vrchat.cloud/api/1/${endpoint}`,
             method: 'GET',
             ...options
         };
-        var { params } = init;
+        var {params} = init;
         var isGetRequest = init.method === 'GET';
         if (isGetRequest === true) {
             // transform body to url
             if (params === Object(params)) {
                 var url = new URL(init.url);
-                var { searchParams } = url;
+                var {searchParams} = url;
                 for (var key in params) {
                     searchParams.set(key, params[key]);
                 }
@@ -185,54 +188,53 @@ speechSynthesis.getVoices();
                 'Content-Type': 'application/json;charset=utf-8',
                 ...init.headers
             };
-            init.body = params === Object(params)
-                ? JSON.stringify(params)
-                : '{}';
+            init.body =
+                params === Object(params) ? JSON.stringify(params) : '{}';
         }
         init.headers = {
             'User-Agent': appVersion,
             ...init.headers
         };
-        var req = webApiService.execute(init).catch((err) => {
-            this.$throw(0, err);
-        }).then((response) => {
-            try {
-                response.data = JSON.parse(response.data);
-                return response;
-            } catch (e) {
-            }
-            if (response.status === 200) {
-                this.$throw(0, 'Invalid JSON response');
-            }
-            this.$throw(response.status);
-            return {};
-        }).then(({ data, status }) => {
-            if (data === Object(data)) {
-                if (status === 200) {
-                    if (data.success === Object(data.success)) {
-                        new Noty({
-                            type: 'success',
-                            text: escapeTag(data.success.message)
-                        }).show();
+        var req = webApiService
+            .execute(init)
+            .catch((err) => {
+                this.$throw(0, err);
+            })
+            .then((response) => {
+                try {
+                    response.data = JSON.parse(response.data);
+                    return response;
+                } catch (e) {}
+                if (response.status === 200) {
+                    this.$throw(0, 'Invalid JSON response');
+                }
+                this.$throw(response.status);
+                return {};
+            })
+            .then(({data, status}) => {
+                if (data === Object(data)) {
+                    if (status === 200) {
+                        if (data.success === Object(data.success)) {
+                            new Noty({
+                                type: 'success',
+                                text: escapeTag(data.success.message)
+                            }).show();
+                        }
+                        return data;
                     }
-                    return data;
+                    if (data.error === Object(data.error)) {
+                        this.$throw(
+                            data.error.status_code || status,
+                            data.error.message,
+                            data.error.data
+                        );
+                    } else if (typeof data.error === 'string') {
+                        this.$throw(data.status_code || status, data.error);
+                    }
                 }
-                if (data.error === Object(data.error)) {
-                    this.$throw(
-                        data.error.status_code || status,
-                        data.error.message,
-                        data.error.data
-                    );
-                } else if (typeof data.error === 'string') {
-                    this.$throw(
-                        data.status_code || status,
-                        data.error
-                    );
-                }
-            }
-            this.$throw(status, data);
-            return data;
-        });
+                this.$throw(status, data);
+                return data;
+            });
         if (isGetRequest === true) {
             req.finally(() => {
                 this.pendingGetRequests.delete(init.url);
@@ -317,7 +319,7 @@ speechSynthesis.getVoices();
         527: 'Railgun Listener to origin error'
     };
 
-    API.$throw = function (code, error) {
+    API.$throw = function(code, error) {
         var text = [];
         if (code > 0) {
             var status = this.statusCodes[code];
@@ -344,11 +346,11 @@ speechSynthesis.getVoices();
 
     API.cachedConfig = {};
 
-    API.$on('CONFIG', function (args) {
+    API.$on('CONFIG', function(args) {
         args.ref = this.applyConfig(args.json);
     });
 
-    API.applyConfig = function (json) {
+    API.applyConfig = function(json) {
         var ref = {
             clientApiKey: '',
             ...json
@@ -357,7 +359,7 @@ speechSynthesis.getVoices();
         return ref;
     };
 
-    API.getConfig = function () {
+    API.getConfig = function() {
         return this.call('config', {
             method: 'GET'
         }).then((json) => {
@@ -372,7 +374,7 @@ speechSynthesis.getVoices();
 
     // API: Location
 
-    API.parseLocation = function (tag) {
+    API.parseLocation = function(tag) {
         tag = String(tag || '');
         var ctx = {
             tag,
@@ -400,15 +402,9 @@ speechSynthesis.getVoices();
                 ctx.instanceId.split('~').forEach((s, i) => {
                     if (i) {
                         var A = s.indexOf('(');
-                        var Z = A >= 0
-                            ? s.lastIndexOf(')')
-                            : -1;
-                        var key = Z >= 0
-                            ? s.substr(0, A)
-                            : s;
-                        var value = A < Z
-                            ? s.substr(A + 1, Z - A - 1)
-                            : '';
+                        var Z = A >= 0 ? s.lastIndexOf(')') : -1;
+                        var key = Z >= 0 ? s.substr(0, A) : s;
+                        var value = A < Z ? s.substr(A + 1, Z - A - 1) : '';
                         if (key === 'hidden') {
                             ctx.hiddenId = value;
                         } else if (key === 'private') {
@@ -512,11 +508,11 @@ speechSynthesis.getVoices();
 
     API.cachedWorlds = new Map();
 
-    API.$on('WORLD', function (args) {
+    API.$on('WORLD', function(args) {
         args.ref = this.applyWorld(args.json);
     });
 
-    API.applyWorld = function (json) {
+    API.applyWorld = function(json) {
         var ref = this.cachedWorlds.get(json.id);
         if (typeof ref === 'undefined') {
             ref = {
@@ -568,7 +564,7 @@ speechSynthesis.getVoices();
             worldId: string
         }
     */
-    API.getWorld = function (params) {
+    API.getWorld = function(params) {
         return this.call(`worlds/${params.worldId}`, {
             method: 'GET'
         }).then((json) => {
@@ -586,11 +582,11 @@ speechSynthesis.getVoices();
 
     API.cachedUsers = new Map();
 
-    API.$on('USER', function (args) {
+    API.$on('USER', function(args) {
         args.ref = this.applyUser(args.json);
     });
 
-    API.applyUser = function (json) {
+    API.applyUser = function(json) {
         var ref = this.cachedUsers.get(json.id);
         if (typeof ref === 'undefined') {
             ref = {
@@ -625,7 +621,7 @@ speechSynthesis.getVoices();
                     props[prop] = true;
                 }
             }
-            var $ref = { ...ref };
+            var $ref = {...ref};
             Object.assign(ref, json);
             for (var prop in ref) {
                 if (ref[prop] !== Object(ref[prop])) {
@@ -638,10 +634,7 @@ speechSynthesis.getVoices();
                 if (asis === tobe) {
                     delete props[prop];
                 } else {
-                    props[prop] = [
-                        tobe,
-                        asis
-                    ];
+                    props[prop] = [tobe, asis];
                 }
             }
         }
@@ -653,7 +646,7 @@ speechSynthesis.getVoices();
             userId: string
         }
     */
-    API.getUser = function (params) {
+    API.getUser = function(params) {
         return this.call(`users/${params.userId}`, {
             method: 'GET'
         }).then((json) => {
@@ -671,11 +664,13 @@ speechSynthesis.getVoices();
             userId: string
         }
     */
-    API.getCachedUser = function (params) {
+    API.getCachedUser = function(params) {
         return new Promise((resolve, reject) => {
             var ref = this.cachedUsers.get(params.userId);
             if (typeof ref === 'undefined') {
-                this.getUser(params).catch(reject).then(resolve);
+                this.getUser(params)
+                    .catch(reject)
+                    .then(resolve);
             } else {
                 resolve({
                     cache: true,
@@ -732,28 +727,34 @@ speechSynthesis.getVoices();
             // OO has muted you
             // OO has hidden you
             // --
-            API.getConfig().catch((err) => {
-                // FIXME: 어케 복구하냐 이건
-                throw err;
-            }).then((args) => {
-                if (this.appType === '1') {
-                    this.updateCpuUsageLoop();
-                }
-                this.initLoop();
-                return args;
-            });
+            API.getConfig()
+                .catch((err) => {
+                    // FIXME: 어케 복구하냐 이건
+                    throw err;
+                })
+                .then((args) => {
+                    if (this.appType === '1') {
+                        this.updateCpuUsageLoop();
+                    }
+                    this.initLoop();
+                    return args;
+                });
         }
     };
 
-    $app.methods.updateVRConfigVars = function () {
-        this.currentUserStatus = sharedRepository.getString('current_user_status');
+    $app.methods.updateVRConfigVars = function() {
+        this.currentUserStatus = sharedRepository.getString(
+            'current_user_status'
+        );
         this.isGameRunning = sharedRepository.getBool('is_game_running');
         this.isGameNoVR = sharedRepository.getBool('is_Game_No_VR');
         var lastLocation = sharedRepository.getObject('last_location');
         if (lastLocation) {
             this.lastLocation = lastLocation;
             if (this.lastLocation.date !== 0) {
-                this.lastLocationTimer = timeToText(Date.now() - this.lastLocation.date);
+                this.lastLocationTimer = timeToText(
+                    Date.now() - this.lastLocation.date
+                );
             } else {
                 this.lastLocationTimer = '';
             }
@@ -773,7 +774,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.initNotyMap = function () {
+    $app.methods.initNotyMap = function() {
         var notyFeed = sharedRepository.getArray('notyFeed');
         if (notyFeed === null) {
             return;
@@ -791,14 +792,16 @@ speechSynthesis.getVoices();
             } else {
                 console.error('missing displayName');
             }
-            if ((displayName) && (!this.notyMap[displayName]) ||
-                (this.notyMap[displayName] < feed.created_at)) {
+            if (
+                (displayName && !this.notyMap[displayName]) ||
+                this.notyMap[displayName] < feed.created_at
+            ) {
                 this.notyMap[displayName] = feed.created_at;
             }
         });
     };
 
-    $app.methods.initLoop = async function () {
+    $app.methods.initLoop = async function() {
         if (!sharedRepository.getBool('VRInit')) {
             setTimeout(this.initLoop, 500);
         } else {
@@ -806,11 +809,11 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.updateLoop = async function () {
+    $app.methods.updateLoop = async function() {
         try {
             this.currentTime = new Date().toJSON();
             await this.updateVRConfigVars();
-            if ((!this.config.hideDevicesFromFeed) && (this.appType === '1')) {
+            if (!this.config.hideDevicesFromFeed && this.appType === '1') {
                 AppApi.GetVRDevices().then((devices) => {
                     devices.forEach((device) => {
                         device[2] = parseInt(device[2], 10);
@@ -827,7 +830,7 @@ speechSynthesis.getVoices();
         setTimeout(() => this.updateLoop(), 500);
     };
 
-    $app.methods.updateCpuUsageLoop = async function () {
+    $app.methods.updateCpuUsageLoop = async function() {
         try {
             var cpuUsage = await AppApi.CpuUsage();
             this.cpuUsage = cpuUsage.toFixed(0);
@@ -837,7 +840,7 @@ speechSynthesis.getVoices();
         setTimeout(() => this.updateCpuUsageLoop(), 1000);
     };
 
-    $app.methods.updateSharedFeeds = function () {
+    $app.methods.updateSharedFeeds = function() {
         if (this.appType === '1') {
             this.wristFeed = sharedRepository.getArray('wristFeed');
         }
@@ -847,7 +850,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.updateSharedFeedNoty = async function (notyFeed) {
+    $app.methods.updateSharedFeedNoty = async function(notyFeed) {
         var notyToPlay = [];
         notyFeed.forEach((feed) => {
             var displayName = '';
@@ -862,8 +865,10 @@ speechSynthesis.getVoices();
             } else {
                 console.error('missing displayName');
             }
-            if ((displayName) && (!this.notyMap[displayName]) ||
-                (this.notyMap[displayName] < feed.created_at)) {
+            if (
+                (displayName && !this.notyMap[displayName]) ||
+                this.notyMap[displayName] < feed.created_at
+            ) {
                 this.notyMap[displayName] = feed.created_at;
                 notyToPlay.push(feed);
             }
@@ -874,7 +879,11 @@ speechSynthesis.getVoices();
         }
         var bias = new Date(Date.now() - 60000).toJSON();
         var noty = {};
-        var messageList = [ 'inviteMessage', 'requestMessage', 'responseMessage' ];
+        var messageList = [
+            'inviteMessage',
+            'requestMessage',
+            'responseMessage'
+        ];
         for (var i = 0; i < notyToPlay.length; i++) {
             noty = notyToPlay[i];
             if (noty.created_at < bias) {
@@ -882,11 +891,18 @@ speechSynthesis.getVoices();
             }
             var message = '';
             for (i = 0; i < messageList.length; i++) {
-                if (typeof noty.details !== 'undefined' && typeof noty.details[messageList[i]] !== 'undefined') {
+                if (
+                    typeof noty.details !== 'undefined' &&
+                    typeof noty.details[messageList[i]] !== 'undefined'
+                ) {
                     message = noty.details[messageList[i]];
                 }
             }
-            if ((this.config.overlayNotifications) && (!this.isGameNoVR) && (this.isGameRunning)) {
+            if (
+                this.config.overlayNotifications &&
+                !this.isGameNoVR &&
+                this.isGameRunning
+            ) {
                 var text = '';
                 switch (noty.type) {
                     case 'OnPlayerJoined':
@@ -899,7 +915,11 @@ speechSynthesis.getVoices();
                         text = `<strong>${noty.displayName}</strong> is joining`;
                         break;
                     case 'GPS':
-                        text = `<strong>${noty.displayName}</strong> is in ${await this.displayLocation(noty.location[0])}`;
+                        text = `<strong>${
+                            noty.displayName
+                        }</strong> is in ${await this.displayLocation(
+                            noty.location[0]
+                        )}`;
                         break;
                     case 'Online':
                         text = `<strong>${noty.displayName}</strong> has logged in`;
@@ -974,7 +994,7 @@ speechSynthesis.getVoices();
         }
     };
 
-    $app.methods.userStatusClass = function (user) {
+    $app.methods.userStatusClass = function(user) {
         var style = {};
         if (typeof user !== 'undefined') {
             if (user.location === 'offline') {
@@ -1000,7 +1020,7 @@ speechSynthesis.getVoices();
         return style;
     };
 
-    $app.methods.displayLocation = async function (location) {
+    $app.methods.displayLocation = async function(location) {
         var text = '';
         var L = API.parseLocation(location);
         if (L.isOffline) {
@@ -1030,7 +1050,7 @@ speechSynthesis.getVoices();
         return text;
     };
 
-    $app.methods.speak = function (text) {
+    $app.methods.speak = function(text) {
         var tts = new SpeechSynthesisUtterance();
         var voices = speechSynthesis.getVoices();
         var voiceIndex = this.config.notificationTTSVoice;
@@ -1041,4 +1061,4 @@ speechSynthesis.getVoices();
 
     $app = new Vue($app);
     window.$app = $app;
-}());
+})();

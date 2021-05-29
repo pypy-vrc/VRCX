@@ -4,12 +4,12 @@ namespace VRCX
 {
     public static class Util
     {
-        public static void ApplyJavascriptBindings(IJavascriptObjectRepository repository)
+        internal static void ApplyJavascriptBindings(
+            IJavascriptObjectRepository repository)
         {
             repository.NameConverter = null;
             repository.Register("AppApi", AppApi.Instance, true);
             repository.Register("SharedVariable", SharedVariable.Instance, false);
-            repository.Register("WebApi", WebApi.Instance, true);
             repository.Register("VRCXStorage", VRCXStorage.Instance, false);
             repository.Register("SQLite", SQLite.Instance, true);
             repository.Register("LogWatcher", LogWatcher.Instance, true);

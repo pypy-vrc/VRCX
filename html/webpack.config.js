@@ -1,20 +1,15 @@
 const path = require('path');
+const TerserPlugin = require('terser-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const TerserPlugin = require('terser-webpack-plugin');
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
+const {VueLoaderPlugin} = require('vue-loader');
 
 module.exports = {
     entry: {
-        app: [
-            './src/app.js',
-            './src/app.scss'
-        ],
-        'app.dark': './src/app.dark.scss',
-        vr: [
-            './src/vr.js',
-            './src/vr.scss'
-        ]
+        app: ['./src/app.js', './src/app.scss'],
+        vr: ['./src/vr.js', './src/vr.scss']
     },
     output: {
         filename: '[name].js',
@@ -41,6 +36,17 @@ module.exports = {
                 use: [MiniCssExtractPlugin.loader, 'css-loader', 'sass-loader']
             },
             {
+                test: /\.ts$/,
+                loader: 'ts-loader'
+            },
+            {
+                test: /\.vue$/,
+                loader: 'vue-loader',
+                options: {
+                    hotReload: false
+                }
+            },
+            {
                 test: /\.(eot|png|svg|ttf|woff)/,
                 use: {
                     loader: 'url-loader',
@@ -53,7 +59,7 @@ module.exports = {
         ]
     },
     resolve: {
-        extensions: ['.css', '.js', '.scss'],
+        extensions: ['.css', '.js', '.scss', '.ts', '.vue'],
         alias: {
             vue: path.join(
                 __dirname,
@@ -72,6 +78,7 @@ module.exports = {
         timings: true
     },
     plugins: [
+        new VueLoaderPlugin(),
         new MiniCssExtractPlugin({
             filename: '[name].css'
         }),
@@ -89,45 +96,30 @@ module.exports = {
         }),
         new CopyPlugin({
             patterns: [
-                // assets
                 {
                     from: './images/',
                     to: './images/'
-                },
-                // // vscode-codicons
-                // {
-                //     from: './node_modules/vscode-codicons/dist/codicon.css',
-                //     to: 'vendor/vscode-codicons/'
-                // },
-                // {
-                //     from: './node_modules/vscode-codicons/dist/codicon.ttf',
-                //     to: 'vendor/vscode-codicons/'
-                // },
-                // // fontawesome
-                // {
-                //     from: './node_modules/@fortawesome/fontawesome-free/webfonts/',
-                //     to: 'vendor/fontawesome/webfonts/'
-                // },
-                // {
-                //     from: './node_modules/@fortawesome/fontawesome-free/css/all.min.css',
-                //     to: 'vendor/fontawesome/css/'
-                // },
-                // // element-plus
-                // {
-                //     from: './node_modules/element-plus/lib/theme-chalk/fonts/',
-                //     to: 'vendor/element-plus/lib/theme-chalk/fonts/'
-                // },
-                // {
-                //     from: './node_modules/element-plus/lib/theme-chalk/index.css',
-                //     to: 'vendor/element-plus/lib/theme-chalk/'
-                // }
+                }
             ]
         })
     ],
     optimization: {
+        // minimize: true,
         minimizer: [
             new TerserPlugin({
                 extractComments: false
+            }),
+            new CssMinimizerPlugin({
+                minimizerOptions: {
+                    preset: [
+                        'default',
+                        {
+                            discardComments: {
+                                removeAll: true
+                            }
+                        }
+                    ]
+                }
             })
         ]
     }

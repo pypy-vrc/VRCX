@@ -10,17 +10,12 @@ namespace VRCX
 {
     public class CpuMonitor
     {
-        public static readonly CpuMonitor Instance;
-        public float CpuUsage;
+        internal static readonly CpuMonitor Instance = new CpuMonitor();
+        internal float CpuUsage;
         private PerformanceCounter _performanceCounter;
         private Timer _timer;
 
-        static CpuMonitor()
-        {
-            Instance = new CpuMonitor();
-        }
-
-        public CpuMonitor()
+        internal void Init()
         {
             try
             {
@@ -53,10 +48,6 @@ namespace VRCX
             }
 
             _timer = new Timer(TimerCallback, null, -1, -1);
-        }
-
-        internal void Init()
-        {
             _timer.Change(1000, 1000);
         }
 

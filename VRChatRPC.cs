@@ -11,7 +11,7 @@ namespace VRCX
 {
     public class VRChatRPC
     {
-        public static readonly VRChatRPC Instance;
+        internal static readonly VRChatRPC Instance;
 
         [DllImport("VRChatRPC", CallingConvention = CallingConvention.Cdecl)]
         private static extern bool VRChatRPC_000();
@@ -27,19 +27,19 @@ namespace VRCX
             Instance = new VRChatRPC();
         }
 
-        public bool Update()
+        internal bool Update()
         {
             return VRChatRPC_000();
         }
 
-        public string GetAuthSessionTicket()
+        internal string GetAuthSessionTicket()
         {
             var a = new byte[1024];
             var n = VRChatRPC_001(a, 1024);
             return BitConverter.ToString(a, 0, n).Replace("-", string.Empty);
         }
 
-        public string GetPersonaName()
+        internal string GetPersonaName()
         {
             var ptr = VRChatRPC_002();
             if (ptr != IntPtr.Zero)

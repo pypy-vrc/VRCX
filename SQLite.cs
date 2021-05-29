@@ -9,25 +9,16 @@ namespace VRCX
 {
     public class SQLite
     {
-        public static readonly SQLite Instance;
-        private readonly ReaderWriterLockSlim m_ConnectionLock;
-        private readonly SQLiteConnection m_Connection;
-
-        static SQLite()
-        {
-            Instance = new SQLite();
-        }
-
-        public SQLite()
-        {
-            m_ConnectionLock = new ReaderWriterLockSlim();
-
-            var dataSource = Path.Combine(Program.BaseDirectory, "VRCX.sqlite3");
-            m_Connection = new SQLiteConnection($"Data Source=\"{dataSource}\";Version=3;PRAGMA locking_mode=NORMAL;PRAGMA busy_timeout=5000", true);
-        }
+        internal static readonly SQLite Instance = new SQLite();
+        private readonly ReaderWriterLockSlim m_ConnectionLock = new ReaderWriterLockSlim();
+        private SQLiteConnection m_Connection;
 
         internal void Init()
         {
+            var dataSource = Path.Combine(Program.AppDataPath, "VRCX.sqlite3");
+            m_Connection = new SQLiteConnection(
+                $"Data Source=\"{dataSource}\";Version=3;PRAGMA locking_mode=NORMAL;PRAGMA busy_timeout=5000",
+                true);
             m_Connection.Open();
         }
 
@@ -37,7 +28,10 @@ namespace VRCX
             m_Connection.Dispose();
         }
 
-        public void Execute(IJavascriptCallback callback, string sql, IDictionary<string, object> args = null)
+        public void Execute(
+            IJavascriptCallback callback,
+            string sql,
+            IDictionary<string, object> args = null)
         {
             try
             {
@@ -50,7 +44,8 @@ namespace VRCX
                         {
                             foreach (var arg in args)
                             {
-                                command.Parameters.Add(new SQLiteParameter(arg.Key, arg.Value));
+                                command.Parameters.Add(
+                                    new SQLiteParameter(arg.Key, arg.Value));
                             }
                         }
                         using (var reader = command.ExecuteReader())
@@ -87,7 +82,10 @@ namespace VRCX
             callback.Dispose();
         }
 
-        public void Execute(Action<object[]> callback, string sql, IDictionary<string, object> args = null)
+        public void Execute(
+            Action<object[]> callback,
+            string sql,
+            IDictionary<string, object> args = null)
         {
             m_ConnectionLock.EnterReadLock();
             try
@@ -98,7 +96,8 @@ namespace VRCX
                     {
                         foreach (var arg in args)
                         {
-                            command.Parameters.Add(new SQLiteParameter(arg.Key, arg.Value));
+                            command.Parameters.Add(
+                                new SQLiteParameter(arg.Key, arg.Value));
                         }
                     }
                     using (var reader = command.ExecuteReader())
@@ -121,7 +120,9 @@ namespace VRCX
             }
         }
 
-        public int ExecuteNonQuery(string sql, IDictionary<string, object> args = null)
+        public int ExecuteNonQuery(
+            string sql,
+            IDictionary<string, object> args = null)
         {
             int result = -1;
 

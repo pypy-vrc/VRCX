@@ -10,20 +10,9 @@ namespace VRCX
 {
     public class SharedVariable
     {
-        public static readonly SharedVariable Instance;
-        private readonly ReaderWriterLockSlim m_MapLock;
-        private readonly Dictionary<string, string> m_Map;
-
-        static SharedVariable()
-        {
-            Instance = new SharedVariable();
-        }
-
-        public SharedVariable()
-        {
-            m_MapLock = new ReaderWriterLockSlim();
-            m_Map = new Dictionary<string, string>();
-        }
+        internal static readonly SharedVariable Instance = new SharedVariable();
+        private readonly ReaderWriterLockSlim m_MapLock = new ReaderWriterLockSlim();
+        private readonly Dictionary<string, string> m_Map = new Dictionary<string, string>();
 
         public void Clear()
         {

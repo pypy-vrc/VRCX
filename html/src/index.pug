@@ -14,7 +14,7 @@ html
     body
         .x-app#x-app(style="display:none")
             //- login
-            .x-login-container(v-show="!API.isLoggedIn")
+            .x-login-container(v-show="!api.isLoggedIn.value")
                 div(style="width:300px;margin:auto" v-loading="loginForm.loading")
                     div(style="margin:15px" v-if="Object.keys(loginForm.savedCredentials).length !== 0")
                         h2(style="font-weight:bold;text-align:center;margin:0") Saved Accounts
@@ -45,7 +45,7 @@ html
                             p VRCX is an assistant application for provide information about manage friendship. this application uses unofficial VRChat API (VRCSDK).
                             p VRCX isn't endorsed by VRChat and doesn't reflect the views or opinions of VRChat or anyone officially involved in producing or managing VRChat. VRChat is trademark of VRChat Inc. VRChat © VRChat Inc.
                             p pypy is not responsible for any problems caused by VRCX. Use at your own risk!
-                        
+
             //- menu
             .x-menu-container
                 //- download progress
@@ -216,7 +216,7 @@ html
                         el-dropdown(@command="(row) => searchWorld(row)" size="small" trigger="click" style="margin-bottom:15px")
                             el-button(size="small") Search by Category #[i.el-icon-arrow-down.el-icon--right]
                             el-dropdown-menu(#default="dropdown")
-                                el-dropdown-item(v-for="row in API.cachedConfig.dynamicWorldRows" :key="row.index" v-text="row.name" :command="row")
+                                el-dropdown-item(v-for="row in api.config.dynamicWorldRows" :key="row.index" v-text="row.name" :command="row")
                         .x-friend-list
                             .x-friend-item(v-for="world in searchWorldResults" :key="world.id" @click="showWorldDialog(world.id)")
                                 template(v-once)
@@ -251,11 +251,11 @@ html
 
             //- favorite
             .x-container(v-show="$refs.menu && $refs.menu.activeIndex === 'favorite'" v-if="$refs.menu && $refs.menu.activeIndex === 'favorite'")
-                el-button(type="default" :loading="API.isFavoriteLoading" @click="API.refreshFavorites()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1")
-                el-tabs(type="card" v-loading="API.isFavoriteLoading")
+                el-button(type="default" :loading="api.isFavoriteLoading.value" @click="API.refreshFavorites()" size="small" icon="el-icon-refresh" circle style="position:relative;float:right;z-index:1")
+                el-tabs(type="card" v-loading="api.isFavoriteLoading.value")
                     el-tab-pane(label="Friend")
                         el-collapse(style="border:0")
-                            el-collapse-item(v-for="group in API.favoriteFriendGroups" :key="group.name")
+                            el-collapse-item(v-for="group in api.favoriteFriendGroups" :key="group.name")
                                 template(slot="title")
                                     span(v-text="group.displayName" style="font-weight:bold;font-size:14px;margin-left:10px")
                                     span(style="color:#909399;font-size:12px;margin-left:10px") {{ group.count }}/{{ group.capacity }}
@@ -284,7 +284,7 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in API.favoriteFriendGroups" :key="groupAPI.name")
+                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteFriendGroups" :key="groupAPI.name")
                                                                 el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'friend')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
@@ -295,7 +295,7 @@ html
                                                 el-button(type="text" icon="el-icon-close" size="mini" @click.stop="deleteFavorite(favorite.id)" style="margin-left:5px")
                     el-tab-pane(label="World")
                         el-collapse(style="border:0")
-                            el-collapse-item(v-for="group in API.favoriteWorldGroups" :key="group.name")
+                            el-collapse-item(v-for="group in api.favoriteWorldGroups" :key="group.name")
                                 template(slot="title")
                                     span(v-text="group.displayName" style="font-weight:bold;font-size:14px;margin-left:10px")
                                     i.x-user-status(style="margin-left:5px" :class="userFavoriteWorldsStatus(group.visibility)")
@@ -331,7 +331,7 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in API.favoriteWorldGroups" :key="groupAPI.name")
+                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteWorldGroups" :key="groupAPI.name")
                                                                 el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'world')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
@@ -346,7 +346,7 @@ html
                                 span Add favorite
                             el-button(style="margin-left:5px" icon="el-icon-plus" size="small" @click="promptAddAvatarFavoriteDialog" circle)
                         el-collapse(style="border:0")
-                            el-collapse-item(v-for="group in API.favoriteAvatarGroups" :key="group.name")
+                            el-collapse-item(v-for="group in api.favoriteAvatarGroups" :key="group.name")
                                 template(slot="title")
                                     span(v-text="group.displayName" style="font-weight:bold;font-size:14px;margin-left:10px")
                                     span(style="color:#909399;font-size:12px;margin-left:10px") {{ group.count }}/{{ group.capacity }}
@@ -369,7 +369,7 @@ html
                                                     el-dropdown(trigger="click" @click.native.stop size="mini" style="margin-left:5px")
                                                         el-button(type="default" icon="el-icon-back" size="mini" circle)
                                                         el-dropdown-menu(#default="dropdown")
-                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in API.favoriteAvatarGroups" :key="groupAPI.name")
+                                                            template(v-if="groupAPI.name !== group.name" v-for="groupAPI in api.favoriteAvatarGroups" :key="groupAPI.name")
                                                                 el-dropdown-item(style="display:block;margin:10px 0" @click.native="moveFavorite(favorite.ref, groupAPI, 'avatar')" :disabled="groupAPI.count >= groupAPI.capacity") {{ groupAPI.displayName }} ({{ groupAPI.count }} / {{ groupAPI.capacity }})
                                                 el-tooltip(placement="right")
                                                     template(#content)
@@ -409,13 +409,13 @@ html
 
             //- moderation
             .x-container(v-show="$refs.menu && $refs.menu.activeIndex === 'moderation'")
-                data-tables(v-bind="playerModerationTable" v-loading="API.isPlayerModerationsLoading")
+                data-tables(v-bind="playerModerationTable" v-loading="api.isPlayerModerationsLoading.value")
                     template(#tool)
                         div(style="margin:0 0 10px;display:flex;align-items:center")
                             el-select(v-model="playerModerationTable.filters[0].value" multiple clearable collapse-tags style="flex:1" placeholder="Filter")
                                 el-option(v-once v-for="type in ['block', 'mute', 'unmute', 'hideAvatar', 'showAvatar']" :key="type" :label="type" :value="type")
                             el-input(v-model="playerModerationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px")
-                            el-button(type="default" :loading="API.isPlayerModerationsLoading" @click="API.refreshPlayerModerations()" icon="el-icon-refresh" circle style="flex:none")
+                            el-button(type="default" :loading="api.isPlayerModerationsLoading.value" @click="API.refreshPlayerModerations()" icon="el-icon-refresh" circle style="flex:none")
                     el-table-column(label="Date" prop="created" sortable="custom" width="100")
                         template(v-once #default="scope")
                             el-tooltip(placement="right")
@@ -431,17 +431,17 @@ html
                             span.x-link(v-text="scope.row.targetDisplayName" @click="showUserDialog(scope.row.targetUserId)")
                     el-table-column(label="Action" width="80" align="right")
                         template(v-once #default="scope")
-                            el-button(v-if="scope.row.sourceUserId === API.currentUser.id" type="text" icon="el-icon-close" size="mini" @click="deletePlayerModeration(scope.row)")
+                            el-button(v-if="scope.row.sourceUserId === api.currentUser.id" type="text" icon="el-icon-close" size="mini" @click="deletePlayerModeration(scope.row)")
 
             //- notification
-            .x-container(v-show="$refs.menu && $refs.menu.activeIndex === 'notification'" v-loading="API.isNotificationsLoading")
+            .x-container(v-show="$refs.menu && $refs.menu.activeIndex === 'notification'" v-loading="api.isNotificationsLoading.value")
                 data-tables(v-bind="notificationTable")
                     template(#tool)
                         div(style="margin:0 0 10px;display:flex;align-items:center")
                             el-select(v-model="notificationTable.filters[0].value" multiple clearable collapse-tags style="flex:1" placeholder="Filter")
                                 el-option(v-once v-for="type in ['requestInvite', 'invite', 'requestInviteResponse', 'inviteResponse', 'friendRequest', 'message']" :key="type" :label="type" :value="type")
                             el-input(v-model="notificationTable.filters[1].value" placeholder="Search" style="flex:none;width:150px;margin:0 10px")
-                            el-button(type="default" :loading="API.isNotificationsLoading" @click="API.refreshNotifications()" icon="el-icon-refresh" circle style="flex:none")
+                            el-button(type="default" :loading="api.isNotificationsLoading.value" @click="API.refreshNotifications()" icon="el-icon-refresh" circle style="flex:none")
                     el-table-column(label="Date" prop="created_at" sortable="custom" width="100")
                         template(v-once #default="scope")
                             el-tooltip(placement="right")
@@ -471,7 +471,7 @@ html
                             span(v-else-if='scope.row.details.responseMessage' v-text="scope.row.details.responseMessage")
                     el-table-column(label="Action" width="80" align="right")
                         template(v-once #default="scope")
-                            template(v-if="scope.row.senderUserId !== API.currentUser.id")
+                            template(v-if="scope.row.senderUserId !== api.currentUser.id")
                                 el-button(v-if="scope.row.type === 'friendRequest'" type="text" icon="el-icon-check" size="mini" @click="acceptNotification(scope.row)")
                                 el-button(v-else-if="scope.row.type === 'invite'" type="text" icon="el-icon-chat-line-square" size="mini" @click="showSendInviteResponseDialog(scope.row)")
                                 el-button(v-else-if="scope.row.type === 'requestInvite'" type="text" icon="el-icon-chat-line-square" size="mini" @click="showSendInviteRequestResponseDialog(scope.row)")
@@ -482,21 +482,21 @@ html
                 div.options-container(style="margin-top:0")
                     span.header Profile
                     .x-friend-list(style="margin-top:10px")
-                        .x-friend-item(@click="showUserDialog(API.currentUser.id)")
+                        .x-friend-item(@click="showUserDialog(api.currentUser.id)")
                             .avatar
-                                img(v-if="displayVRCPlusIconsAsAvatar && API.currentUser.userIcon" v-lazy="API.currentUser.userIcon")
-                                img(v-else v-lazy="API.currentUser.currentAvatarThumbnailImageUrl")
+                                img(v-if="displayVRCPlusIconsAsAvatar && api.currentUser.userIcon" v-lazy="api.currentUser.userIcon")
+                                img(v-else v-lazy="api.currentUser.currentAvatarThumbnailImageUrl")
                             .detail
-                                span.name(v-text="API.currentUser.displayName")
-                                span.extra(v-text="API.currentUser.username")
+                                span.name(v-text="api.currentUser.displayName")
+                                span.extra(v-text="api.currentUser.username")
                         .x-friend-item(style="cursor:default")
                             .detail
                                 span.name Last Login
-                                span.extra {{ API.currentUser.last_login | formatDate('YYYY-MM-DD HH24:MI:SS') }}
+                                span.extra {{ api.currentUser.last_login | formatDate('YYYY-MM-DD HH24:MI:SS') }}
                         .x-friend-item(style="cursor:default")
                             .detail
                                 span.name Two-Factor Auth (2FA)
-                                span.extra {{ API.currentUser.twoFactorAuthEnabled ? 'Enabled' : 'Disabled' }}
+                                span.extra {{ api.currentUser.twoFactorAuthEnabled ? 'Enabled' : 'Disabled' }}
                     div(style="margin-top:10px")
                         el-button(size="small" icon="el-icon-switch-button" @click="logout()") Logout
                         el-button(size="small" icon="el-icon-printer" @click="showExportFriendsListDialog()") Export Friends List
@@ -603,7 +603,7 @@ html
                         template(#content)
                             span Clear results
                         el-button(type="default" @click="VRCPlusIconsTable = {}" size="mini" icon="el-icon-delete" circle style="margin-left:0")
-                    template(v-if="API.currentUser.$isVRCPlus")
+                    template(v-if="api.currentUser.$isVRCPlus")
                         el-tooltip(placement="top")
                             template(#content)
                                 span Upload icon
@@ -613,7 +613,7 @@ html
                     el-tooltip(placement="top")
                         template(#content)
                             span Reset icon
-                        el-button(type="default" @click="setVRCPlusIcon('')" size="mini" icon="el-icon-close" circle style="margin-left:0" :disabled="!API.currentUser.userIcon")
+                        el-button(type="default" @click="setVRCPlusIcon('')" size="mini" icon="el-icon-close" circle style="margin-left:0" :disabled="!api.currentUser.userIcon")
                     br
                     .x-friend-item(v-for="icon in VRCPlusIconsTable" :key="icon.id" style="display:inline-block;margin-top:10px;cursor:default")
                         .vrcplus-icon(style="" @click="setVRCPlusIcon(icon.id)" :class="{ 'current-vrcplus-icon': compareCurrentVRCPlusIcon(icon.id) }")
@@ -942,14 +942,14 @@ html
                         i.el-icon-arrow-right(:class="{ rotate: isFriendsGroupMe }")
                         span.x-link(@click="isFriendsGroupMe = !isFriendsGroupMe" style="margin-left:5px") ME
                     div(v-show="isFriendsGroupMe")
-                        .x-friend-item(:key="API.currentUser.id" @click="showUserDialog(API.currentUser.id)")
-                            .avatar(:class="userStatusClass(API.currentUser)")
-                                img(v-if="displayVRCPlusIconsAsAvatar && API.currentUser.userIcon" v-lazy="API.currentUser.userIcon")
-                                img(v-else v-lazy="API.currentUser.currentAvatarThumbnailImageUrl")
+                        .x-friend-item(:key="api.currentUser.id" @click="showUserDialog(api.currentUser.id)")
+                            .avatar(:class="userStatusClass(api.currentUser)")
+                                img(v-if="displayVRCPlusIconsAsAvatar && api.currentUser.userIcon" v-lazy="api.currentUser.userIcon")
+                                img(v-else v-lazy="api.currentUser.currentAvatarThumbnailImageUrl")
                             .detail
-                                span.name(v-text="API.currentUser.displayName" :class="API.currentUser.$trustClass")
+                                span.name(v-text="api.currentUser.displayName" :class="api.currentUser.$trustClass")
                                 location.extra(v-if="isGameRunning === true" :location="lastLocation.location" :link="false")
-                                span.extra(v-else v-text="API.currentUser.statusDescription" :link="false")
+                                span.extra(v-else v-text="api.currentUser.statusDescription" :link="false")
                     .x-friend-group(v-show="friendsGroup0.length")
                         i.el-icon-arrow-right(:class="{ rotate: isFriendsGroup0 }")
                         span.x-link(@click="isFriendsGroup0 = !isFriendsGroup0" style="margin-left:5px") VIP&horbar;{{ friendsGroup0.length }}
@@ -1061,7 +1061,7 @@ html
                                 el-dropdown(trigger="click" @command="userDialogCommand" size="small")
                                     el-button(:type="(userDialog.incomingRequest || userDialog.outgoingRequest) ? 'success' : (userDialog.isBlock || userDialog.isMute || userDialog.isHideAvatar) ? 'danger' : 'default'" icon="el-icon-more" circle style="margin-left:5px")
                                     el-dropdown-menu(#default="dropdown")
-                                        template(v-if="userDialog.ref.id === API.currentUser.id")
+                                        template(v-if="userDialog.ref.id === api.currentUser.id")
                                             el-dropdown-item(icon="el-icon-check" command="Select Avatar") Select Avatar By ID
                                             el-dropdown-item(icon="el-icon-s-custom" command="Show Avatar Author") Show Avatar Author
                                             el-dropdown-item(icon="el-icon-s-custom" command="Show Fallback Avatar Details") Show Fallback Avatar Details
@@ -1158,11 +1158,11 @@ html
                                     .detail
                                         span.name Date Joined
                                         span.extra(v-text="userDialog.ref.date_joined")
-                                .x-friend-item(v-if="userDialog.ref.id === API.currentUser.id && API.currentUser.homeLocation" @click="showWorldDialog(API.currentUser.homeLocation)" style="width:100%")
+                                .x-friend-item(v-if="userDialog.ref.id === api.currentUser.id && api.currentUser.homeLocation" @click="showWorldDialog(api.currentUser.homeLocation)" style="width:100%")
                                     .detail
                                         span.name Home Location
                                         span.extra
-                                            location(:location="API.currentUser.homeLocation" :link="false")
+                                            location(:location="api.currentUser.homeLocation" :link="false")
                                             el-button(@click.stop="resetHome()" size="mini" icon="el-icon-delete" circle style="margin-left:5px")
                         el-tab-pane(label="Worlds")
                             el-button(type="default" :loading="userDialog.isWorldsLoading" @click="refreshUserDialogWorlds()" size="mini" icon="el-icon-refresh" circle)
@@ -1192,7 +1192,7 @@ html
                                                 span.name(v-text="world.name")
                                                 span.extra(v-if="world.occupants") ({{ world.occupants }})
                         el-tab-pane(label="Avatars")
-                            template(v-if="userDialog.ref.id === API.currentUser.id")
+                            template(v-if="userDialog.ref.id === api.currentUser.id")
                                 el-button(type="default" :loading="userDialog.isAvatarsLoading" @click="refreshUserDialogAvatars()" size="mini" icon="el-icon-refresh" circle)
                             span(style="margin-left:5px") Total {{ userDialogAvatars.length }}
                             el-radio-group(v-model="userDialog.avatarSorting" size="mini" style="margin-left:30px" @change="changeUserDialogAvatarSorting")
@@ -1229,7 +1229,7 @@ html
                         div(style="flex:1;display:flex;align-items:center;margin-left:15px")
                             div(style="flex:1")
                                 div
-                                    i.el-icon-s-home(v-show="API.currentUser.$homeLocation && API.currentUser.$homeLocation.worldId === worldDialog.id")
+                                    i.el-icon-s-home(v-show="api.currentUser.$homeLocation && api.currentUser.$homeLocation.worldId === worldDialog.id")
                                     span(v-text="worldDialog.ref.name" style="font-weight:bold")
                                 div(style="margin-top:5px")
                                     span.x-link(v-text="worldDialog.ref.authorName" @click="showUserDialog(worldDialog.ref.authorId)" style="color:#909399;font-family:monospace")
@@ -1251,9 +1251,9 @@ html
                                     el-dropdown-menu(#default="dropdown")
                                         el-dropdown-item(icon="el-icon-refresh" command="Refresh") Refresh
                                         el-dropdown-item(icon="el-icon-s-flag" command="New Instance" divided) New Instance
-                                        el-dropdown-item(v-if="API.currentUser.$homeLocation && API.currentUser.$homeLocation.worldId === worldDialog.id" icon="el-icon-magic-stick" command="Reset Home" divided) Reset Home
+                                        el-dropdown-item(v-if="api.currentUser.$homeLocation && api.currentUser.$homeLocation.worldId === worldDialog.id" icon="el-icon-magic-stick" command="Reset Home" divided) Reset Home
                                         el-dropdown-item(v-else icon="el-icon-s-home" command="Make Home" divided) Make Home
-                                        template(v-if="API.currentUser.id !== worldDialog.ref.authorId")
+                                        template(v-if="api.currentUser.id !== worldDialog.ref.authorId")
                                             el-dropdown-item(icon="el-icon-picture-outline" command="Previous Images") Previous Images
                                         template(v-else)
                                             el-dropdown-item(icon="el-icon-edit" command="Rename") Rename
@@ -1372,8 +1372,8 @@ html
                                     el-dropdown-menu(#default="dropdown")
                                         el-dropdown-item(icon="el-icon-check" command="Select Avatar") Select Avatar
                                         el-dropdown-item(v-if="/quest/.test(avatarDialog.ref.tags)" icon="el-icon-check" command="Select Fallback Avatar") Select Fallback Avatar
-                                        el-dropdown-item(v-if="avatarDialog.ref.authorId !== API.currentUser.id" icon="el-icon-picture-outline" command="Previous Images") Previous Images
-                                        template(v-if="avatarDialog.ref.authorId === API.currentUser.id")
+                                        el-dropdown-item(v-if="avatarDialog.ref.authorId !== api.currentUser.id" icon="el-icon-picture-outline" command="Previous Images") Previous Images
+                                        template(v-if="avatarDialog.ref.authorId === api.currentUser.id")
                                             el-dropdown-item(v-if="avatarDialog.ref.releaseStatus === 'public'" icon="el-icon-user-solid" command="Make Private" divided) Make Private
                                             el-dropdown-item(v-else icon="el-icon-user" command="Make Public" divided) Make Public
                                             el-dropdown-item(icon="el-icon-edit" command="Rename") Rename
@@ -1426,13 +1426,13 @@ html
                 div(v-loading="inviteDialog.loading")
                     location(:location="inviteDialog.worldId" :link="false")
                     el-select(v-model="inviteDialog.userIds" multiple clearable placeholder="Choose Friends" filterable :disabled="inviteDialog.loading" style="width:100%;margin-top:15px")
-                        el-option-group(v-if="API.currentUser" label="ME")
-                            el-option.x-friend-item(:label="API.currentUser.displayName" :value="API.currentUser.id" style="height:auto")
-                                .avatar(:class="userStatusClass(API.currentUser)")
-                                    img(v-if="displayVRCPlusIconsAsAvatar && API.currentUser.userIcon" v-lazy="API.currentUser.userIcon")
-                                    img(v-else v-lazy="API.currentUser.currentAvatarThumbnailImageUrl")
+                        el-option-group(v-if="api.currentUser" label="ME")
+                            el-option.x-friend-item(:label="api.currentUser.displayName" :value="api.currentUser.id" style="height:auto")
+                                .avatar(:class="userStatusClass(api.currentUser)")
+                                    img(v-if="displayVRCPlusIconsAsAvatar && api.currentUser.userIcon" v-lazy="api.currentUser.userIcon")
+                                    img(v-else v-lazy="api.currentUser.currentAvatarThumbnailImageUrl")
                                 .detail
-                                    span.name(v-text="API.currentUser.displayName")
+                                    span.name(v-text="api.currentUser.displayName")
                         el-option-group(v-if="friendsGroup0.length" label="VIP")
                             el-option.x-friend-item(v-for="friend in friendsGroup0" :key="friend.id" :label="friend.name" :value="friend.id" style="height:auto")
                                 template(v-if="friend.ref")
@@ -1486,7 +1486,7 @@ html
             el-dialog.x-dialog(ref="languageDialog" :visible.sync="languageDialog.visible" title="Language" width="400px")
                 div(v-loading="languageDialog.loading")
                     div(style="margin:5px 0")
-                        el-tag(v-for="item in API.currentUser.$languages" :key="item.key" size="small" type="info" effect="plain" closable @close="removeUserLanguage(item.key)" style="margin-right:5px")
+                        el-tag(v-for="item in api.currentUser.$languages" :key="item.key" size="small" type="info" effect="plain" closable @close="removeUserLanguage(item.key)" style="margin-right:5px")
                             span.famfamfam-flags(:class="languageClass(item.key)" style="display:inline-block;margin-right:5px")
                             | {{ item.value }} ({{ item.key }})
                     div(v-if="languageDialog.languageChoice === true")
@@ -1835,7 +1835,7 @@ html
                     
             //- dialog Table: Send Invite Response Message
             el-dialog.x-dialog(ref="sendInviteResponseDialog" :visible.sync="sendInviteResponseDialogVisible" title="Send Invite Response Message" width="800px")
-                template(v-if="API.currentUser.$isVRCPlus")
+                template(v-if="api.currentUser.$isVRCPlus")
                     input.inviteImageUploadButton(type="file" multiple accept="image/png" @change="inviteImageUpload")
                 data-tables(v-bind="inviteResponseMessageTable" @row-click="showSendInviteResponseConfirmDialog" style="margin-top:10px;cursor:pointer")
                     el-table-column(label="Slot" prop="slot" sortable="custom" width="70")
@@ -1852,7 +1852,7 @@ html
                     
             //- dialog Table: Send Invite Request Response Message
             el-dialog.x-dialog(ref="sendInviteRequestResponseDialog" :visible.sync="sendInviteRequestResponseDialogVisible" title="Send Invite Request Response Message" width="800px")
-                template(v-if="API.currentUser.$isVRCPlus")
+                template(v-if="api.currentUser.$isVRCPlus")
                     input.inviteImageUploadButton(type="file" multiple accept="image/png" @change="inviteImageUpload")
                 data-tables(v-bind="inviteRequestResponseMessageTable" @row-click="showSendInviteResponseConfirmDialog" style="margin-top:10px;cursor:pointer")
                     el-table-column(label="Slot" prop="slot" sortable="custom" width="70")
@@ -1877,7 +1877,7 @@ html
                     
             //- dialog Table: Send Invite Message
             el-dialog.x-dialog(ref="sendInviteDialog" :visible.sync="sendInviteDialogVisible" title="Send Invite Message" width="800px")
-                template(v-if="API.currentUser.$isVRCPlus")
+                template(v-if="api.currentUser.$isVRCPlus")
                     input.inviteImageUploadButton(type="file" multiple accept="image/png" @change="inviteImageUpload")
                 data-tables(v-bind="inviteMessageTable" @row-click="showSendInviteConfirmDialog" style="margin-top:10px;cursor:pointer")
                     el-table-column(label="Slot" prop="slot" sortable="custom" width="70")
@@ -1894,7 +1894,7 @@ html
                     
             //- dialog Table: Send Invite Request Message
             el-dialog.x-dialog(ref="sendInviteRequestDialog" :visible.sync="sendInviteRequestDialogVisible" title="Send Invite Request Message" width="800px")
-                template(v-if="API.currentUser.$isVRCPlus")
+                template(v-if="api.currentUser.$isVRCPlus")
                     input.inviteImageUploadButton(type="file" multiple accept="image/png" @change="inviteImageUpload")
                 data-tables(v-bind="inviteRequestMessageTable" @row-click="showSendInviteConfirmDialog" style="margin-top:10px;cursor:pointer")
                     el-table-column(label="Slot" prop="slot" sortable="custom" width="70")

@@ -11,27 +11,16 @@ namespace VRCX
 {
     public class Discord
     {
-        public static readonly Discord Instance;
-        private readonly ReaderWriterLockSlim m_Lock;
-        private readonly RichPresence m_Presence;
+        internal static readonly Discord Instance = new Discord();
+        private readonly ReaderWriterLockSlim m_Lock = new ReaderWriterLockSlim();
+        private readonly RichPresence m_Presence = new RichPresence();
         private DiscordRpcClient m_Client;
         private Timer m_Timer;
         private bool m_Active;
 
-        static Discord()
-        {
-            Instance = new Discord();
-        }
-
-        public Discord()
-        {
-            m_Lock = new ReaderWriterLockSlim();
-            m_Presence = new RichPresence();
-            m_Timer = new Timer(TimerCallback, null, -1, -1);
-        }
-
         internal void Init()
         {
+            m_Timer = new Timer(TimerCallback, null, -1, -1);
             m_Timer.Change(0, 1000);
         }
 

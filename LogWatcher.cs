@@ -16,30 +16,25 @@ namespace VRCX
     {
         private class LogContext
         {
-            public long Length;
-            public long Position;
-            public string RecentWorldName;
-            public string LastVideoURL;
-            public bool ShaderKeywordsLimitReached = false;
+            internal long Length;
+            internal long Position;
+            internal string RecentWorldName;
+            internal string LastVideoURL;
+            internal bool ShaderKeywordsLimitReached = false;
         }
 
-        public static readonly LogWatcher Instance;
-        private readonly DirectoryInfo m_LogDirectoryInfo;
-        private readonly Dictionary<string, LogContext> m_LogContextMap; // <FileName, LogContext>
-        private readonly ReaderWriterLockSlim m_LogListLock;
-        private readonly List<string[]> m_LogList;
+        internal static readonly LogWatcher Instance = new LogWatcher();
+        private DirectoryInfo m_LogDirectoryInfo;
+        private Dictionary<string, LogContext> m_LogContextMap; // <FileName, LogContext>
+        private ReaderWriterLockSlim m_LogListLock;
+        private List<string[]> m_LogList;
         private Thread m_Thread;
         private bool m_ResetLog;
 
         // NOTE
         // FileSystemWatcher() is unreliable
 
-        static LogWatcher()
-        {
-            Instance = new LogWatcher();
-        }
-
-        public LogWatcher()
+        internal void Init()
         {
             var logPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + @"Low\VRChat\VRChat";
             m_LogDirectoryInfo = new DirectoryInfo(logPath);
@@ -50,10 +45,6 @@ namespace VRCX
             {
                 IsBackground = true
             };
-        }
-
-        internal void Init()
-        {
             m_Thread.Start();
         }
 

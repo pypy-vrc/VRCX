@@ -1,0 +1,4 @@
+span(@click="showWorldDialog"
+    :class="{ 'x-link': link && this.location !== 'private' && this.location !== 'offline'}")
+    | {{ text }}
+    slot

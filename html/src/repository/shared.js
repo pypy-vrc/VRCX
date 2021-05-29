@@ -76,8 +76,7 @@ class SharedRepository {
         }
         try {
             value = JSON.parse(value);
-        } catch (err) {
-        }
+        } catch (err) {}
         if (value !== Object(value)) {
             return defaultValue;
         }
@@ -104,7 +103,4 @@ class SharedRepository {
 var self = new SharedRepository();
 window.sharedRepository = self;
 
-export {
-    self as default,
-    SharedRepository
-};
+export {self as default, SharedRepository};

@@ -12,7 +12,7 @@ namespace VRCX
 {
     public partial class VRForm : Form
     {
-        public static VRForm Instance;
+        internal static VRForm Instance;
         private ChromiumWebBrowser _browser1;
         private ChromiumWebBrowser _browser2;
 
@@ -22,10 +22,10 @@ namespace VRCX
             InitializeComponent();
 
             _browser1 = new ChromiumWebBrowser(
-                Path.Combine(Program.BaseDirectory, "html/vr.html?1")
+                Path.Combine(Program.AppBasePath, "html/vr.html?1")
             )
             {
-                DragHandler = new NoopDragHandler(),
+                DragHandler = new VRCXDragHandler(),
                 BrowserSettings =
                 {
                     DefaultEncoding = "UTF-8",
@@ -34,10 +34,10 @@ namespace VRCX
             };
 
             _browser2 = new ChromiumWebBrowser(
-                Path.Combine(Program.BaseDirectory, "html/vr.html?2")
+                Path.Combine(Program.AppBasePath, "html/vr.html?2")
             )
             {
-                DragHandler = new NoopDragHandler(),
+                DragHandler = new VRCXDragHandler(),
                 BrowserSettings =
                 {
                     DefaultEncoding = "UTF-8",

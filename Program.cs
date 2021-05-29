@@ -3,19 +3,21 @@
 // This work is licensed under the terms of the MIT license.
 // For a copy, see <https://opensource.org/licenses/MIT>.
 
+using CefSharp;
+using CefSharp.OffScreen;
 using System;
+using System.IO;
+using System.Net;
 using System.Windows.Forms;
 
 namespace VRCX
 {
     public class Program
     {
-        public static string BaseDirectory { get; private set; }
-
-        static Program()
-        {
-            BaseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        }
+        internal static readonly string AppBasePath = AppDomain.CurrentDomain.BaseDirectory;
+        internal static readonly string AppDataPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "VRCX");
 
         [STAThread]
         private static void Main()
@@ -26,7 +28,11 @@ namespace VRCX
             }
             catch (Exception e)
             {
-                MessageBox.Show(e.ToString(), "PLEASE REPORT TO PYPY", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    e.ToString(),
+                    "PLEASE REPORT TO PYPY",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
                 Environment.Exit(0);
             }
         }
@@ -36,27 +42,56 @@ namespace VRCX
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            SQLite.Instance.Init();
-            VRCXStorage.Load();
-            CpuMonitor.Instance.Init();
-            Discord.Instance.Init();
-            WebApi.Instance.Init();
-            LogWatcher.Instance.Init();
+            ServicePointManager.DefaultConnectionLimit = 10;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
-            CefService.Instance.Init();
-            VRCXVR.Instance.Init();
-            Application.Run(new MainForm());
-            WebApi.Instance.SaveCookies();
-            VRCXVR.Instance.Exit();
-            CefService.Instance.Exit();
+            Cef.EnableHighDPISupport();
 
-            LogWatcher.Instance.Exit();
-            WebApi.Instance.Exit();
+            var cefSettings = new CefSettings
+            {
+                LogSeverity = LogSeverity.Disable,
+                WindowlessRenderingEnabled = true,
+                PersistSessionCookies = true,
+                PersistUserPreferences = true,
+                IgnoreCertificateErrors = true,
+                CachePath = AppDataPath,
+                UserDataPath = AppDataPath,
+            };
 
-            Discord.Instance.Exit();
-            CpuMonitor.Instance.Exit();
-            VRCXStorage.Save();
-            SQLite.Instance.Exit();
+            cefSettings.CefCommandLineArgs.Add("ignore-certificate-errors");
+            cefSettings.CefCommandLineArgs.Add("disable-gpu");
+            cefSettings.CefCommandLineArgs.Add("disable-web-security");
+            cefSettings.CefCommandLineArgs.Add("disable-plugins-discovery");
+            cefSettings.CefCommandLineArgs.Add("disable-software-rasterizer");
+            cefSettings.CefCommandLineArgs.Add("disable-extensions");
+            cefSettings.CefCommandLineArgs.Add("disable-spell-checking");
+            cefSettings.CefCommandLineArgs.Add("autoplay-policy", "no-user-gesture-required");
+
+            cefSettings.SetOffScreenRenderingBestPerformanceArgs();
+            // cefSettings.CefCommandLineArgs.Add("disable-direct-composition");
+            // cefSettings.CefCommandLineArgs.Add("enable-begin-frame-scheduling");
+
+            if (Cef.Initialize(cefSettings) == true)
+            {
+                SQLite.Instance.Init();
+                VRCXStorage.Load();
+                CpuMonitor.Instance.Init();
+                Discord.Instance.Init();
+                LogWatcher.Instance.Init();
+
+                VRCXVR.Instance.Init();
+                Application.Run(new MainForm());
+                VRCXVR.Instance.Exit();
+
+                LogWatcher.Instance.Exit();
+
+                Discord.Instance.Exit();
+                CpuMonitor.Instance.Exit();
+                VRCXStorage.Save();
+                SQLite.Instance.Exit();
+            }
+
+            Cef.Shutdown();
         }
     }
 }

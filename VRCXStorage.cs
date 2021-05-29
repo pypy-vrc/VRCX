@@ -12,10 +12,10 @@ namespace VRCX
 {
     public class VRCXStorage
     {
-        public static readonly VRCXStorage Instance;
+        internal static readonly VRCXStorage Instance;
         private static readonly ReaderWriterLockSlim m_Lock = new ReaderWriterLockSlim();
         private static Dictionary<string, string> m_Storage = new Dictionary<string, string>();
-        private static string m_JsonPath = Path.Combine(Program.BaseDirectory, "VRCX.json");
+        private static string m_JsonPath = Path.Combine(Program.AppDataPath, "VRCX.json");
         private static bool m_Dirty;
 
         static VRCXStorage()
@@ -23,7 +23,7 @@ namespace VRCX
             Instance = new VRCXStorage();
         }
 
-        public static void Load()
+        internal static void Load()
         {
             m_Lock.EnterWriteLock();
             try
@@ -37,7 +37,7 @@ namespace VRCX
             }
         }
 
-        public static void Save()
+        internal static void Save()
         {
             m_Lock.EnterReadLock();
             try

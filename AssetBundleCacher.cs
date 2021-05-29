@@ -100,12 +100,12 @@ namespace VRCX
 
         public void DownloadCacheFile(string cacheDir, string url, string id, int version, int sizeInBytes, string md5, string AppVersion)
         {
-            if (!File.Exists(Path.Combine(Program.BaseDirectory, "AssetBundleCacher\\AssetBundleCacher.exe")))
+            if (!File.Exists(Path.Combine(Program.AppBasePath, "AssetBundleCacher\\AssetBundleCacher.exe")))
             {
                 DownloadProgress = -10;
                 return;
             }
-            if (!File.Exists(Path.Combine(Program.BaseDirectory, "AssetBundleCacher\\UnityPlayer.dll")))
+            if (!File.Exists(Path.Combine(Program.AppBasePath, "AssetBundleCacher\\UnityPlayer.dll")))
             {
                 using (var key = Registry.ClassesRoot.OpenSubKey(@"VRChat\shell\open\command"))
                 {
@@ -116,7 +116,7 @@ namespace VRCX
                         var fileLocation = Path.Combine(match.Groups[1].Value, "UnityPlayer.dll");
                         if (File.Exists(fileLocation))
                         {
-                            File.Copy(fileLocation, Path.Combine(Program.BaseDirectory, "AssetBundleCacher\\UnityPlayer.dll"));
+                            File.Copy(fileLocation, Path.Combine(Program.AppBasePath, "AssetBundleCacher\\UnityPlayer.dll"));
                         }
                         else
                         {
@@ -215,7 +215,7 @@ namespace VRCX
                 }
             }
             process = new Process();
-            process.StartInfo.FileName = Path.Combine(Program.BaseDirectory, "AssetBundleCacher\\AssetBundleCacher.exe");
+            process.StartInfo.FileName = Path.Combine(Program.AppBasePath, "AssetBundleCacher\\AssetBundleCacher.exe");
             process.StartInfo.Arguments = AssetBundleCacherArgs;
             process.Start();
             process.WaitForExit((int) TimeSpan.FromMinutes(2).TotalMilliseconds); //2mins

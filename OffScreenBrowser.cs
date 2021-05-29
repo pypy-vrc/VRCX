@@ -38,7 +38,7 @@ namespace VRCX
             Util.ApplyJavascriptBindings(JavascriptObjectRepository);
         }
 
-        public new void Dispose()
+        internal new void Dispose()
         {
             RenderHandler = null;
             base.Dispose();
@@ -59,7 +59,7 @@ namespace VRCX
             _paintBufferLock.Dispose();
         }
 
-        public void RenderToTexture(Texture2D texture)
+        internal void RenderToTexture(Texture2D texture)
         {
             _paintBufferLock.EnterReadLock();
             try

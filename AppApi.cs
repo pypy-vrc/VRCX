@@ -18,24 +18,18 @@ using Windows.UI.Notifications;
 using Windows.Data.Xml.Dom;
 using librsync.net;
 using System.Net.Sockets;
-using System.Text.Json.Serialization;
 
 namespace VRCX
 {
     public class AppApi
     {
-        public static readonly AppApi Instance;
-
-        static AppApi()
-        {
-            Instance = new AppApi();
-        }
+        internal static readonly AppApi Instance = new AppApi();
 
         public string MD5File(string Blob)
         {
             byte[] fileData = Convert.FromBase64CharArray(Blob.ToCharArray(), 0, Blob.Length);
             byte[] md5 = MD5.Create().ComputeHash(fileData);
-            return System.Convert.ToBase64String(md5);
+            return Convert.ToBase64String(md5);
         }
 
         public string SignFile(string Blob)
@@ -45,7 +39,7 @@ namespace VRCX
             var memoryStream = new MemoryStream();
             sig.CopyTo(memoryStream);
             byte[] sigBytes = memoryStream.ToArray();
-            return System.Convert.ToBase64String(sigBytes);
+            return Convert.ToBase64String(sigBytes);
         }
 
         public string FileLength(string Blob)
@@ -231,7 +225,7 @@ namespace VRCX
 
         public void CacheImage(string Base64File)
         {
-            String Icon = Path.Combine(Program.BaseDirectory, "cache\\toast");
+            String Icon = Path.Combine(Program.AppBasePath, "cache\\toast");
             File.WriteAllBytes(Icon, Convert.FromBase64String(Base64File));
         }
 
@@ -239,10 +233,10 @@ namespace VRCX
         {
             XmlDocument toastXml = ToastNotificationManager.GetTemplateContent(ToastTemplateType.ToastImageAndText02);
             XmlNodeList stringElements = toastXml.GetElementsByTagName("text");
-            String imagePath = Path.Combine(Program.BaseDirectory, "VRCX.ico");
+            String imagePath = Path.Combine(Program.AppBasePath, "VRCX.ico");
             if (Image)
             {
-                imagePath = Path.Combine(Program.BaseDirectory, "cache\\toast");
+                imagePath = Path.Combine(Program.AppBasePath, "cache\\toast");
             }
             stringElements[0].AppendChild(toastXml.CreateTextNode(BoldText));
             stringElements[1].AppendChild(toastXml.CreateTextNode(Text));
@@ -275,7 +269,7 @@ namespace VRCX
             if (Image)
             {
                 UseBase64Icon = false;
-                Icon = Path.Combine(Program.BaseDirectory, "cache\\toast");
+                Icon = Path.Combine(Program.AppBasePath, "cache\\toast");
             }
 
             IPAddress broadcastIP = IPAddress.Parse("127.0.0.1");

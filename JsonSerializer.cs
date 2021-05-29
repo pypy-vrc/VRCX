@@ -9,9 +9,9 @@ using System.Text;
 
 namespace VRCX
 {
-    public static class JsonSerializer
+    internal static class JsonSerializer
     {
-        public static void Serialize<T>(string path, T obj)
+        internal static void Serialize<T>(string path, T obj)
         {
             try
             {
@@ -29,7 +29,7 @@ namespace VRCX
             }
         }
 
-        public static bool Deserialize<T>(string path, ref T obj) where T : new()
+        internal static bool Deserialize<T>(string path, ref T obj) where T : new()
         {
             try
             {

@@ -21,15 +21,15 @@ namespace VRCX
 {
     public class VRCXVR
     {
-        public static readonly VRCXVR Instance;
+        internal static readonly VRCXVR Instance = new VRCXVR();
         private static readonly float[] _rotation = { 0f, 0f, 0f };
         private static readonly float[] _translation = { 0f, 0f, 0f };
         private static readonly float[] _translationLeft = { -7f / 100f, -5f / 100f, 6f / 100f };
         private static readonly float[] _translationRight = { 7f / 100f, -5f / 100f, 6f / 100f };
         private static readonly float[] _rotationLeft = { 90f * (float)(Math.PI / 180f), 90f * (float)(Math.PI / 180f), -90f * (float)(Math.PI / 180f) };
         private static readonly float[] _rotationRight = { -90f * (float)(Math.PI / 180f), -90f * (float)(Math.PI / 180f), -90f * (float)(Math.PI / 180f) };
-        private readonly ReaderWriterLockSlim _deviceListLock;
-        private List<string[]> _deviceList;
+        private readonly ReaderWriterLockSlim _deviceListLock = new ReaderWriterLockSlim();
+        private List<string[]> _deviceList = new List<string[]>();
         private Thread _thread;
         private Device _device;
         private Texture2D _texture1;
@@ -38,25 +38,14 @@ namespace VRCX
         private OffScreenBrowser _browser2;
         private bool _active;
 
-        static VRCXVR()
-        {
-            Instance = new VRCXVR();
-        }
-
-        public VRCXVR()
-        {
-            _deviceListLock = new ReaderWriterLockSlim();
-            _deviceList = new List<string[]>();
-            _thread = new Thread(ThreadLoop)
-            {
-                IsBackground = true
-            };
-        }
-
         // NOTE
         // 메모리 릭 때문에 미리 생성해놓고 계속 사용함
         internal void Init()
         {
+            _thread = new Thread(ThreadLoop)
+            {
+                IsBackground = true
+            };
             _thread.Start();
         }
 
@@ -123,13 +112,13 @@ namespace VRCX
             );
 
             _browser1 = new OffScreenBrowser(
-                Path.Combine(Program.BaseDirectory, "html/vr.html?1"),
+                Path.Combine(Program.AppBasePath, "html/vr.html?1"),
                 512,
                 512
             );
 
             _browser2 = new OffScreenBrowser(
-                Path.Combine(Program.BaseDirectory, "html/vr.html?2"),
+                Path.Combine(Program.AppBasePath, "html/vr.html?2"),
                 512,
                 512
             );
@@ -247,18 +236,18 @@ namespace VRCX
 
         }
 
-        public void SetActive(bool active)
+        internal void SetActive(bool active)
         {
             _active = active;
         }
 
-        public void Refresh()
+        internal void Refresh()
         {
             _browser1.ExecuteScriptAsync("location.reload()");
             _browser2.ExecuteScriptAsync("location.reload()");
         }
 
-        public string[][] GetDevices()
+        internal string[][] GetDevices()
         {
             _deviceListLock.EnterReadLock();
             try
