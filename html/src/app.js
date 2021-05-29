@@ -29,6 +29,9 @@ import sharedRepository from './repository/shared.js';
 import configRepository from './repository/config.js';
 import gameLogService from './service/gamelog.js';
 
+// use require()
+var ossDialog = require('./vue/oss_dialog');
+
 speechSynthesis.getVoices();
 
 (async function() {
@@ -3089,6 +3092,7 @@ speechSynthesis.getVoices();
             Launch: require('./vue/launch').default,
             InviteYourself: require('./vue/invite_yourself').default,
             CountdownTimer: require('./vue/countdown_timer').default,
+            OssDialog: ossDialog.default,
             VSwatches
         },
         data: {
@@ -3100,12 +3104,13 @@ speechSynthesis.getVoices();
             isGameNoVR: false,
             appVersion,
             latestAppVersion: '',
-            ossDialog: false,
             exportFriendsListDialog: false,
             exportFriendsListContent: ''
         },
         computed: {},
-        methods: {},
+        methods: {
+            showOssDialog: ossDialog.showDialog
+        },
         watch: {},
         el: '#x-app',
         mounted() {
