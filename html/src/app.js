@@ -12,9 +12,6 @@ import VSwatches from 'vue-swatches';
 import ElementUI from 'element-ui';
 import locale from 'element-ui/lib/locale/lang/en';
 
-import * as api from './api';
-import * as pubsub from './pubsub';
-import * as uuid from './uuid';
 import {
     escapeHtml,
     commaNumber,
@@ -23,6 +20,10 @@ import {
     timeToText,
     removeFromArray
 } from './util';
+import * as uuid from './uuid';
+import * as pubsub from './pubsub';
+import * as api from './api';
+import {parseLocation} from './location';
 
 import {appVersion} from './constants.js';
 import sharedRepository from './repository/shared.js';
@@ -133,80 +134,6 @@ speechSynthesis.getVoices();
     //
 
     var API = {};
-
-    // API: Config
-
-    // API: Location
-
-    API.parseLocation = function(tag) {
-        tag = String(tag || '');
-        var ctx = {
-            tag,
-            isOffline: false,
-            isPrivate: false,
-            worldId: '',
-            instanceId: '',
-            instanceName: '',
-            accessType: '',
-            userId: null,
-            hiddenId: null,
-            privateId: null,
-            friendsId: null,
-            canRequestInvite: false
-        };
-        if (tag === 'offline') {
-            ctx.isOffline = true;
-        } else if (tag === 'private') {
-            ctx.isPrivate = true;
-        } else if (tag.startsWith('local') === false) {
-            var sep = tag.indexOf(':');
-            if (sep >= 0) {
-                ctx.worldId = tag.substr(0, sep);
-                ctx.instanceId = tag.substr(sep + 1);
-                ctx.instanceId.split('~').forEach((s, i) => {
-                    if (i) {
-                        var A = s.indexOf('(');
-                        var Z = A >= 0 ? s.lastIndexOf(')') : -1;
-                        var key = Z >= 0 ? s.substr(0, A) : s;
-                        var value = A < Z ? s.substr(A + 1, Z - A - 1) : '';
-                        if (key === 'hidden') {
-                            ctx.hiddenId = value;
-                        } else if (key === 'private') {
-                            ctx.privateId = value;
-                        } else if (key === 'friends') {
-                            ctx.friendsId = value;
-                        } else if (key === 'canRequestInvite') {
-                            ctx.canRequestInvite = true;
-                        }
-                    } else {
-                        ctx.instanceName = s;
-                    }
-                });
-                ctx.accessType = 'public';
-                if (ctx.privateId !== null) {
-                    if (ctx.canRequestInvite) {
-                        // InvitePlus
-                        ctx.accessType = 'invite+';
-                    } else {
-                        // InviteOnly
-                        ctx.accessType = 'invite';
-                    }
-                    ctx.userId = ctx.privateId;
-                } else if (ctx.friendsId !== null) {
-                    // FriendsOnly
-                    ctx.accessType = 'friends';
-                    ctx.userId = ctx.friendsId;
-                } else if (ctx.hiddenId !== null) {
-                    // FriendsOfGuests
-                    ctx.accessType = 'friends+';
-                    ctx.userId = ctx.hiddenId;
-                }
-            } else {
-                ctx.worldId = tag;
-            }
-        }
-        return ctx;
-    };
 
     // API: User
 
@@ -466,8 +393,8 @@ speechSynthesis.getVoices();
         var ref = api.currentUser;
         if (api.isLoggedIn.value) {
             Object.assign(ref, json);
-            if (ref.homeLocation !== ref.$homeLocation.tag) {
-                ref.$homeLocation = API.parseLocation(ref.homeLocation);
+            if (ref.homeLocation !== ref.$homeLocation.location) {
+                ref.$homeLocation = parseLocation(ref.homeLocation);
             }
             ref.$isVRCPlus = ref.tags.includes('system_supporter');
             API.applyUserTrustLevel(ref);
@@ -510,7 +437,7 @@ speechSynthesis.getVoices();
                 //
                 ...json
             };
-            ref.$homeLocation = API.parseLocation(ref.homeLocation);
+            ref.$homeLocation = parseLocation(ref.homeLocation);
             ref.$isVRCPlus = ref.tags.includes('system_supporter');
             API.applyUserTrustLevel(ref);
             API.applyUserLanguage(ref);
@@ -524,8 +451,6 @@ speechSynthesis.getVoices();
         sharedRepository.setString('current_user_status', ref.status);
         return ref;
     };
-
-
 
     var userUpdateQueue = [];
     var userUpdateTimer = null;
@@ -596,7 +521,7 @@ speechSynthesis.getVoices();
                 //
                 ...json
             };
-            ref.$location = API.parseLocation(ref.location);
+            ref.$location = parseLocation(ref.location);
             ref.$isVRCPlus = ref.tags.includes('system_supporter');
             API.applyUserTrustLevel(ref);
             API.applyUserLanguage(ref);
@@ -610,8 +535,8 @@ speechSynthesis.getVoices();
             }
             var $ref = {...ref};
             Object.assign(ref, json);
-            if (ref.location !== ref.$location.tag) {
-                ref.$location = API.parseLocation(ref.location);
+            if (ref.location !== ref.$location.location) {
+                ref.$location = parseLocation(ref.location);
             }
             if (ref.statusDescription) {
                 ref.statusDescription = ref.statusDescription.substring(0, 32);
@@ -1713,9 +1638,9 @@ speechSynthesis.getVoices();
 
     API.parseInviteLocation = function(ref) {
         try {
-            var L = API.parseLocation(ref.details.worldId);
+            var L = parseLocation(ref.details.worldId);
             if (L.worldId && L.instanceId) {
-                return `${ref.details.worldName} #${L.instanceName} ${L.accessType}`;
+                return `${ref.details.worldName} #${L.name} ${L.accessType}`;
             }
             return ref.message || ref.details.worldId || ref.details.worldName;
         } catch (err) {
@@ -4383,7 +4308,7 @@ speechSynthesis.getVoices();
 
     $app.methods.displayLocation = async function(location) {
         var text = '';
-        var L = API.parseLocation(location);
+        var L = parseLocation(location);
         if (L.isOffline) {
             text = 'Offline';
         } else if (L.isPrivate) {
@@ -4396,7 +4321,7 @@ speechSynthesis.getVoices();
                         worldId: L.worldId
                     })
                     .then((args) => {
-                        if (L.tag === location) {
+                        if (L.location === location) {
                             if (L.instanceId) {
                                 text = `${args.json.name} ${L.accessType}`;
                             } else {
@@ -5903,8 +5828,8 @@ speechSynthesis.getVoices();
             Discord.SetActive(false);
             return;
         }
-        if (this.lastLocation.location !== this.lastLocation$.tag) {
-            var L = API.parseLocation(this.lastLocation.location);
+        if (this.lastLocation.location !== this.lastLocation$.location) {
+            var L = parseLocation(this.lastLocation.location);
             L.worldName = L.worldId;
             this.lastLocation$ = L;
             if (L.worldId) {
@@ -5930,7 +5855,7 @@ speechSynthesis.getVoices();
         if (this.discordInstance) {
             Discord.SetText(
                 LL.worldName,
-                `#${LL.instanceName} ${LL.accessType}`
+                `#${LL.name} ${LL.accessType}`
             );
         } else {
             Discord.SetText(LL.worldName, '');
@@ -7596,7 +7521,7 @@ speechSynthesis.getVoices();
                 if (action === 'confirm' && instance.inputValue) {
                     var testUrl = instance.inputValue.substring(0, 15);
                     if (testUrl === 'https://vrchat.') {
-                        var worldInstance = API.parseLocationUrl(
+                        var worldInstance = parseLocationUrl(
                             instance.inputValue
                         );
                         this.showWorldDialog(worldInstance);
@@ -8105,8 +8030,8 @@ speechSynthesis.getVoices();
                         API.getUser(args.params);
                     }
                     this.getAvatarName(args);
-                    var L = API.parseLocation(D.ref.location);
-                    if (L.worldId && this.lastLocation.location !== L.tag) {
+                    var L = parseLocation(D.ref.location);
+                    if (L.worldId && this.lastLocation.location !== L.location) {
                         API.getInstance({
                             worldId: L.worldId,
                             instanceId: L.instanceId
@@ -8119,13 +8044,13 @@ speechSynthesis.getVoices();
 
     $app.methods.applyUserDialogLocation = function() {
         var D = this.userDialog;
-        var L = API.parseLocation(D.ref.location);
+        var L = parseLocation(D.ref.location);
         D.$location = L;
-        if (L.userId) {
-            var ref = api.userMap.get(L.userId);
+        if (L.owerId) {
+            var ref = api.userMap.get(L.owerId);
             if (typeof ref === 'undefined') {
                 API.getUser({
-                    userId: L.userId
+                    userId: L.owerId
                 }).then((args) => {
                     Vue.set(L, 'user', args.ref);
                     return args;
@@ -8137,7 +8062,7 @@ speechSynthesis.getVoices();
         var users = [];
         var playersInInstance = this.lastLocation.playerList;
         if (
-            this.lastLocation.location === L.tag &&
+            this.lastLocation.location === L.location &&
             playersInInstance.length > 0
         ) {
             var ref = api.userMap.get(api.currentUser.id);
@@ -8170,7 +8095,7 @@ speechSynthesis.getVoices();
         } else {
             if (L.isOffline === false) {
                 for (var {ref} of this.friends.values()) {
-                    if (typeof ref !== 'undefined' && ref.location === L.tag) {
+                    if (typeof ref !== 'undefined' && ref.location === L.location) {
                         if (
                             ref.state === 'active' &&
                             ref.location === 'private'
@@ -8187,9 +8112,9 @@ speechSynthesis.getVoices();
         if (!L.worldId) {
             return;
         }
-        if (this.lastLocation.location === L.tag) {
+        if (this.lastLocation.location === L.location) {
             D.instance = {
-                id: L.tag,
+                id: L.location,
                 occupants: this.lastLocation.playerList.length
             };
         }
@@ -8454,7 +8379,7 @@ speechSynthesis.getVoices();
                 return args;
             });
         } else if (command === 'Invite Message') {
-            var L = API.parseLocation(this.lastLocation.location);
+            var L = parseLocation(this.lastLocation.location);
             api.getCachedWorld({
                 worldId: L.worldId
             }).then((args) => {
@@ -8475,7 +8400,7 @@ speechSynthesis.getVoices();
                 D.id
             );
         } else if (command === 'Invite') {
-            var L = API.parseLocation(this.lastLocation.location);
+            var L = parseLocation(this.lastLocation.location);
             api.getCachedWorld({
                 worldId: L.worldId
             }).then((args) => {
@@ -8627,7 +8552,7 @@ speechSynthesis.getVoices();
     $app.methods.showWorldDialog = function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.worldDialog.$el));
         var D = this.worldDialog;
-        var L = API.parseLocation(tag);
+        var L = parseLocation(tag);
         if (L.worldId === '') {
             return;
         }
@@ -8680,7 +8605,7 @@ speechSynthesis.getVoices();
                 users: []
             };
         }
-        var lastLocation$ = API.parseLocation(this.lastLocation.location);
+        var lastLocation$ = parseLocation(this.lastLocation.location);
         var playersInInstance = this.lastLocation.playerList;
         if (lastLocation$.worldId === D.id && playersInInstance.length > 0) {
             var instance = instances[lastLocation$.instanceId];
@@ -8746,14 +8671,14 @@ speechSynthesis.getVoices();
         for (var instance of Object.values(instances)) {
             // due to references on callback of API.getUser()
             // this should be block scope variable
-            const L = API.parseLocation(`${D.id}:${instance.id}`);
-            instance.location = L.tag;
+            const L = parseLocation(`${D.id}:${instance.id}`);
+            instance.location = L.location;
             instance.$location = L;
-            if (L.userId) {
-                var ref = api.userMap.get(L.userId);
+            if (L.owerId) {
+                var ref = api.userMap.get(L.owerId);
                 if (typeof ref === 'undefined') {
                     API.getUser({
-                        userId: L.userId
+                        userId: L.owerId
                     }).then((args) => {
                         Vue.set(L, 'user', args.ref);
                         return args;
@@ -8803,7 +8728,7 @@ speechSynthesis.getVoices();
                     });
                 break;
             case 'New Instance':
-                this.showNewInstanceDialog(D.$location.tag);
+                this.showNewInstanceDialog(D.$location.location);
                 break;
             case 'Add Favorite':
                 this.showFavoriteDialog('world', D.id);
@@ -9365,7 +9290,7 @@ speechSynthesis.getVoices();
 
     $app.methods.showInviteDialog = function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.inviteDialog.$el));
-        var L = API.parseLocation(tag);
+        var L = parseLocation(tag);
         if (L.isOffline || L.isPrivate || L.worldId === '') {
             return;
         }
@@ -9374,7 +9299,7 @@ speechSynthesis.getVoices();
         }).then((args) => {
             var D = this.inviteDialog;
             D.userIds = [];
-            D.worldId = L.tag;
+            D.worldId = L.location;
             D.worldName = args.ref.name;
             D.visible = true;
         });
@@ -9611,7 +9536,7 @@ speechSynthesis.getVoices();
 
     $app.methods.showNewInstanceDialog = function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.newInstanceDialog.$el));
-        var L = API.parseLocation(tag);
+        var L = parseLocation(tag);
         if (L.isOffline || L.isPrivate || L.worldId === '') {
             return;
         }
@@ -9739,7 +9664,7 @@ speechSynthesis.getVoices();
 
     $app.methods.showLaunchDialog = function(tag) {
         this.$nextTick(() => adjustDialogZ(this.$refs.launchDialog.$el));
-        var L = API.parseLocation(tag);
+        var L = parseLocation(tag);
         if (L.isOffline || L.isPrivate || L.worldId === '') {
             return;
         }
@@ -9796,7 +9721,7 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.copyLocation = function(location) {
-        var L = API.parseLocation(location);
+        var L = parseLocation(location);
         var url = getLaunchURL(L.worldId, L.instanceId);
         this.copyToClipboard(url);
         this.$message({
@@ -11841,7 +11766,7 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.checkVRChatCacheDownload = function(lastLocation) {
-        var L = API.parseLocation(lastLocation);
+        var L = parseLocation(lastLocation);
         if (L.worldId) {
             if (this.downloadCurrent.id === L.worldId) {
                 this.cancelVRChatCacheDownload(L.worldId);
@@ -11925,7 +11850,7 @@ speechSynthesis.getVoices();
     };
 
     $app.methods.autoDownloadWorldCache = function(location, type, userId) {
-        var L = API.parseLocation(location);
+        var L = parseLocation(location);
         if (
             !L.worldId ||
             this.downloadQueue.has(L.worldId) ||

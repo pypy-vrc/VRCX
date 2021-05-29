@@ -1099,7 +1099,7 @@ html
                                     invite-yourself(:location="userDialog.ref.location" style="margin-left:5px")
                                     el-button(v-if="copyLocationCheck(userDialog.ref.location)" @click="copyLocation(userDialog.ref.location)" size="mini" icon="el-icon-s-order" style="margin-left:5px" circle)
                                 .x-friend-list(style="flex:1;margin-top:10px")
-                                    .x-friend-item(v-if="userDialog.$location.userId" @click="showUserDialog(userDialog.$location.userId)")
+                                    .x-friend-item(v-if="userDialog.$location.ownerId" @click="showUserDialog(userDialog.$location.ownerId)")
                                         template(v-if="userDialog.$location.user")
                                             .avatar(:class="userStatusClass(userDialog.$location.user)")
                                                 img(v-if="displayVRCPlusIconsAsAvatar && userDialog.$location.user.userIcon" v-lazy="userDialog.$location.user.userIcon")
@@ -1107,7 +1107,7 @@ html
                                             .detail
                                                 span.name(v-text="userDialog.$location.user.displayName" :class="userDialog.$location.user.$trustClass")
                                                 span.extra Instance Creator
-                                        span(v-else v-text="userDialog.$location.userId")
+                                        span(v-else v-text="userDialog.$location.ownerId")
                                     .x-friend-item(v-for="user in userDialog.users" :key="user.id" @click="showUserDialog(user.id)")
                                         .avatar(:class="userStatusClass(user)")
                                             img(v-if="displayVRCPlusIconsAsAvatar && user.userIcon" v-lazy="user.userIcon")
@@ -1265,12 +1265,12 @@ html
                                 #[i.el-icon-check(style="margin-left:10px")] Capacity {{ worldDialog.ref.capacity | commaNumber }}
                             div(v-for="room in worldDialog.rooms" :key="room.id")
                                 div(style="margin:5px 0")
-                                    span.x-link(@click="showLaunchDialog(room.$location.tag)").
-                                        \#{{ room.$location.instanceName }} {{ room.$location.accessType }} #[template(v-if="room.occupants") ({{ room.occupants }})]
-                                    invite-yourself(:location="room.$location.tag" style="margin-left:5px")
-                                    el-button(v-if="copyLocationCheck(room.$location.tag)" @click="copyLocation(room.$location.tag)" size="mini" icon="el-icon-s-order" style="margin-left:5px" circle)
-                                .x-friend-list(style="margin:10px 0" v-if="room.$location.userId || room.users.length")
-                                    .x-friend-item(v-if="room.$location.userId" @click="showUserDialog(room.$location.userId)")
+                                    span.x-link(@click="showLaunchDialog(room.$location.location)").
+                                        \#{{ room.$location.name }} {{ room.$location.accessType }} #[template(v-if="room.occupants") ({{ room.occupants }})]
+                                    invite-yourself(:location="room.$location.location" style="margin-left:5px")
+                                    el-button(v-if="copyLocationCheck(room.$location.location)" @click="copyLocation(room.$location.location)" size="mini" icon="el-icon-s-order" style="margin-left:5px" circle)
+                                .x-friend-list(style="margin:10px 0" v-if="room.$location.ownerId || room.users.length")
+                                    .x-friend-item(v-if="room.$location.ownerId" @click="showUserDialog(room.$location.ownerId)")
                                         template(v-if="room.$location.user")
                                             .avatar(:class="userStatusClass(room.$location.user)")
                                                 img(v-if="displayVRCPlusIconsAsAvatar && room.$location.user.userIcon" v-lazy="room.$location.user.userIcon")
@@ -1278,7 +1278,7 @@ html
                                             .detail
                                                 span.name(v-text="room.$location.user.displayName" :class="room.$location.user.$trustClass")
                                                 span.extra Instance Creator
-                                        span(v-else v-text="room.$location.userId")
+                                        span(v-else v-text="room.$location.ownerId")
                                     .x-friend-item(v-for="user in room.users" :key="user.id" @click="showUserDialog(user.id)")
                                         .avatar(:class="userStatusClass(user)")
                                             img(v-if="displayVRCPlusIconsAsAvatar && user.userIcon" v-lazy="user.userIcon")
