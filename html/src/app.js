@@ -3005,17 +3005,17 @@ speechSynthesis.getVoices();
                 if (--this.nextFriendsRefresh <= 0) {
                     this.nextFriendsRefresh = 7200; // 1hour
                     API.refreshFriends();
-                    if (API.isGameRunning) {
+                    if (this.isGameRunning) {
                         API.refreshPlayerModerations();
                     }
                 }
                 AppApi.CheckGameRunning().then(
                     ([isGameRunning, isGameNoVR]) => {
-                        if (isGameRunning !== API.isGameRunning) {
-                            API.isGameRunning = isGameRunning;
+                        if (isGameRunning !== this.isGameRunning) {
+                            this.isGameRunning = isGameRunning;
                             Discord.SetTimestamps(Date.now(), 0);
                         }
-                        API.isGameNoVR = isGameNoVR;
+                        this.isGameNoVR = isGameNoVR;
                         this.updateDiscord();
                         this.updateOpenVR();
                     }
@@ -3100,7 +3100,7 @@ speechSynthesis.getVoices();
         // OnPlayerJoining
         var locationBias = Date.now() - 30000; //30 seconds
         if (
-            API.isGameRunning &&
+            this.isGameRunning &&
             this.lastLocation.date < locationBias &&
             (this.sharedFeedFilters.wrist.OnPlayerJoining === 'Friends' ||
                 this.sharedFeedFilters.wrist.OnPlayerJoining === 'VIP' ||
@@ -3447,7 +3447,7 @@ speechSynthesis.getVoices();
                 }
             }
         }
-        if (API.isGameRunning) {
+        if (this.isGameRunning) {
             this.lastLocation.playerList = playerList;
             this.lastLocation.friendList = friendList;
             sharedRepository.setObject('last_location', this.lastLocation);
@@ -3673,14 +3673,14 @@ speechSynthesis.getVoices();
         if (
             this.notificationTTS === 'Always' ||
             (this.notificationTTS === 'Outside VR' &&
-                (API.isGameNoVR || !API.isGameRunning)) ||
+                (this.isGameNoVR || !this.isGameRunning)) ||
             (this.notificationTTS === 'Inside VR' &&
-                !API.isGameNoVR &&
-                API.isGameRunning) ||
-            (this.notificationTTS === 'Game Closed' && !API.isGameRunning) ||
+                !this.isGameNoVR &&
+                this.isGameRunning) ||
+            (this.notificationTTS === 'Game Closed' && !this.isGameRunning) ||
             (this.notificationTTS === 'Desktop Mode' &&
-                API.isGameNoVR &&
-                API.isGameRunning)
+                this.isGameNoVR &&
+                this.isGameRunning)
         ) {
             playNotificationTTS = true;
         }
@@ -3688,19 +3688,19 @@ speechSynthesis.getVoices();
         if (
             this.desktopToast === 'Always' ||
             (this.desktopToast === 'Outside VR' &&
-                (API.isGameNoVR || !API.isGameRunning)) ||
+                (this.isGameNoVR || !this.isGameRunning)) ||
             (this.desktopToast === 'Inside VR' &&
-                !API.isGameNoVR &&
-                API.isGameRunning) ||
-            (this.desktopToast === 'Game Closed' && !API.isGameRunning) ||
+                !this.isGameNoVR &&
+                this.isGameRunning) ||
+            (this.desktopToast === 'Game Closed' && !this.isGameRunning) ||
             (this.desktopToast === 'Desktop Mode' &&
-                API.isGameNoVR &&
-                API.isGameRunning)
+                this.isGameNoVR &&
+                this.isGameRunning)
         ) {
             playDesktopToast = true;
         }
         var playXSNotification = false;
-        if (this.xsNotifications && API.isGameRunning && !API.isGameNoVR) {
+        if (this.xsNotifications && this.isGameRunning && !this.isGameNoVR) {
             playXSNotification = true;
         }
         if (api.currentUserStatus === 'busy' || !this.notyInit) {
@@ -5689,7 +5689,7 @@ speechSynthesis.getVoices();
 
             switch (gameLog.type) {
                 case 'location':
-                    if (API.isGameRunning) {
+                    if (this.isGameRunning) {
                         this.lastLocation = {
                             date: Date.parse(gameLog.dt),
                             location: gameLog.location,
@@ -5791,7 +5791,7 @@ speechSynthesis.getVoices();
                 });
             }
         }
-        if (API.isGameRunning === false || this.lastLocation.location === '') {
+        if (this.isGameRunning === false || this.lastLocation.location === '') {
             Discord.SetActive(false);
             return;
         }
@@ -5904,10 +5904,10 @@ speechSynthesis.getVoices();
                 params.offset = 0;
             }
         }
-        API.isSearchUserLoading = true;
+        this.isSearchUserLoading = true;
         await API.getUsers(params)
             .finally(() => {
-                API.isSearchUserLoading = false;
+                this.isSearchUserLoading = false;
             })
             .then((args) => {
                 var map = new Map();
@@ -5991,10 +5991,10 @@ speechSynthesis.getVoices();
                 params.offset = 0;
             }
         }
-        API.isSearchWorldLoading = true;
+        this.isSearchUserLoading = true;
         api.getWorlds(params, this.searchWorldOption)
             .finally(() => {
-                API.isSearchWorldLoading = false;
+                this.isSearchUserLoading = false;
             })
             .then((args) => {
                 var map = new Map();
@@ -6044,10 +6044,10 @@ speechSynthesis.getVoices();
                 params.offset = 0;
             }
         }
-        API.isSearchAvatarLoading = true;
+        this.isSearchAvatarLoading = true;
         API.getAvatars(params)
             .finally(() => {
-                API.isSearchAvatarLoading = false;
+                this.isSearchAvatarLoading = false;
             })
             .then((args) => {
                 var map = new Map();
@@ -6964,13 +6964,15 @@ speechSynthesis.getVoices();
     $app.watch.worldAutoCacheGPSFilter = saveOpenVROption;
     $app.watch.autoSweepVRChatCache = saveOpenVROption;
     $app.watch.notificationTTS = saveNotificationTTS;
-    $app.data.isDarkMode = configRepository.getBool('isDarkMode');
-    if ($app.data.isDarkMode === true) {
+    if (configRepository.getBool('isDarkMode') === true) {
         document.getElementsByTagName('body')[0].classList.add('dark');
+        $app.data.isDarkMode = true;
+    } else {
+        $app.data.isDarkMode = false;
     }
     $app.watch.isDarkMode = function() {
-        configRepository.setBool('isDarkMode', API.isDarkMode);
-        if ($app.data.isDarkMode === true) {
+        configRepository.setBool('isDarkMode', this.isDarkMode);
+        if ($app.isDarkMode === true) {
             document.getElementsByTagName('body')[0].classList.add('dark');
         } else {
             document.getElementsByTagName('body')[0].classList.remove('dark');
@@ -6987,15 +6989,15 @@ speechSynthesis.getVoices();
     var saveVRCXWindowOption = function() {
         configRepository.setBool(
             'VRCX_StartAtWindowsStartup',
-            API.isStartAtWindowsStartup
+            this.isStartAtWindowsStartup
         );
         VRCXStorage.Set(
             'VRCX_StartAsMinimizedState',
-            API.isStartAsMinimizedState.toString()
+            this.isStartAsMinimizedState.toString()
         );
-        configRepository.setBool('VRCX_CloseToTray', API.isCloseToTray);
-        AppApi.SetStartup(API.isStartAtWindowsStartup);
-        configRepository.setBool('VRCX_AutoLogin', API.isAutoLogin);
+        configRepository.setBool('VRCX_CloseToTray', this.isCloseToTray);
+        AppApi.SetStartup(this.isStartAtWindowsStartup);
+        configRepository.setBool('VRCX_AutoLogin', this.isAutoLogin);
     };
     $app.watch.isStartAtWindowsStartup = saveVRCXWindowOption;
     $app.watch.isStartAsMinimizedState = saveVRCXWindowOption;
@@ -7313,7 +7315,7 @@ speechSynthesis.getVoices();
 
     sharedRepository.setBool('is_game_running', false);
     var isGameRunningStateChange = function() {
-        sharedRepository.setBool('is_game_running', API.isGameRunning);
+        sharedRepository.setBool('is_game_running', this.isGameRunning);
         this.lastLocation = {
             date: 0,
             location: '',
@@ -7321,7 +7323,7 @@ speechSynthesis.getVoices();
             playerList: [],
             friendList: []
         };
-        if (API.isGameRunning) {
+        if (this.isGameRunning) {
             api.currentUser.$online_for = Date.now();
             api.currentUser.$offline_for = '';
         } else {
@@ -7334,7 +7336,7 @@ speechSynthesis.getVoices();
 
     sharedRepository.setBool('is_Game_No_VR', false);
     var isGameNoVRStateChange = function() {
-        sharedRepository.setBool('is_Game_No_VR', API.isGameNoVR);
+        sharedRepository.setBool('is_Game_No_VR', this.isGameNoVR);
     };
     $app.watch.isGameNoVR = isGameNoVRStateChange;
 
@@ -7421,8 +7423,8 @@ speechSynthesis.getVoices();
     $app.methods.updateOpenVR = function() {
         if (
             this.openVR &&
-            API.isGameNoVR === false &&
-            (API.isGameRunning || this.openVRAlways)
+            this.isGameNoVR === false &&
+            (this.isGameRunning || this.openVRAlways)
         ) {
             AppApi.StartVR();
         } else {
@@ -11783,8 +11785,8 @@ speechSynthesis.getVoices();
         if (
             this.worldAutoCacheInvite === 'Always' ||
             (this.worldAutoCacheInvite === 'Game Closed' &&
-                !API.isGameRunning) ||
-            (this.worldAutoCacheInvite === 'Game Running' && API.isGameRunning)
+                !this.isGameRunning) ||
+            (this.worldAutoCacheInvite === 'Game Running' && this.isGameRunning)
         ) {
             if (
                 !this.worldAutoCacheInviteFilter &&
@@ -11803,8 +11805,8 @@ speechSynthesis.getVoices();
     $app.methods.feedDownloadWorldCache = function(feed) {
         if (
             this.worldAutoCacheGPS === 'Always' ||
-            (this.worldAutoCacheGPS === 'Game Closed' && !API.isGameRunning) ||
-            (this.worldAutoCacheGPS === 'Game Running' && API.isGameRunning)
+            (this.worldAutoCacheGPS === 'Game Closed' && !this.isGameRunning) ||
+            (this.worldAutoCacheGPS === 'Game Running' && this.isGameRunning)
         ) {
             if (
                 feed.location === '' ||
